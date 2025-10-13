@@ -1,5 +1,5 @@
 use redis::AsyncCommands;
-use crate::RedisClient;
+use crate::{PriceError, RedisClient};
 
 
 impl RedisClient {
@@ -16,10 +16,18 @@ impl RedisClient {
         conn.set(key, price).await
     }
 
-    pub async fn get_price(&self, symbol: &str) -> Option<String> {
-        let mut conn = self.client.get_multiplexed_tokio_connection().await.ok()?;
+    pub async fn get_price(&self, symbol: &str) -> Result<String, PriceError> {
+        let mut conn = self.client
+            .get_multiplexed_tokio_connection()
+            .await
+            .map_err(PriceError::RedisError)?;
+
         let key = format!("price:{}", symbol);
-        conn.get(key).await.ok()
+        match conn.get::<_, Option<String>>(key).await {
+            Ok(Some(price)) => Ok(price),
+            Ok(None) => Err(PriceError::NotFound),
+            Err(e) => Err(PriceError::RedisError(e)),
+        }
     }
 }
 

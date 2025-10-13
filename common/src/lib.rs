@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use rust_decimal::Decimal;
+use serde::{Deserialize, Serialize};
 
 mod redis_client;
 
@@ -23,18 +23,24 @@ pub struct Price {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum Side { Buy, Sell }
+pub enum Side {
+    Buy,
+    Sell,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum OrderType { Market, Limit }
+pub enum OrderType {
+    Market,
+    Limit,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrderRequest {
     pub side: Side,
     pub price: Decimal,
     pub amount: Decimal,
+    pub order_type: OrderType,
     pub client_id: Option<String>,
-    pub order_type: OrderType
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -45,4 +51,17 @@ pub struct Order {
     pub amount: Decimal,
     pub order_type: OrderType,
     pub client_id: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct PriceInfo {
+    pub symbol: String,
+    pub price: String,
+    pub timestamp: u64,
+}
+
+#[derive(Debug)]
+pub enum PriceError {
+    NotFound,
+    RedisError(redis::RedisError),
 }

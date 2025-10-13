@@ -1,18 +1,17 @@
+use axum::http::StatusCode;
 use axum::{
     extract::State,
     routing::{get, post},
     Json, Router,
 };
-use common::RedisClient;
 use common::{Order, OrderRequest, Price, Side};
+use common::{PriceError, PriceInfo, RedisClient};
 use parking_lot::RwLock;
 use rust_decimal::Decimal;
 use serde_json::json;
-use std::{
-    collections::BTreeMap,
-    net::SocketAddr,
-    sync::Arc,
-};
+use std::time::{SystemTime, UNIX_EPOCH};
+use std::{collections::BTreeMap, net::SocketAddr, sync::Arc};
+use axum::extract::Path;
 use tokio::sync::broadcast;
 use tracing_subscriber::FmtSubscriber;
 
@@ -58,7 +57,7 @@ async fn main() {
     let app = Router::new()
         .route("/book", get(get_book))
         .route("/create_order", post(create_order))
-        .route("/price/:symbol", get(get_current_price_handler))
+        .route("/price/:symbol", get(get_price_handler))
         .with_state(state.clone());
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
@@ -71,13 +70,32 @@ async fn main() {
 
 // --- Handlers ------------------------------------------------
 
-async fn get_current_price_handler(
+async fn get_price_handler(
     State(state): State<SharedState>,
-    axum::extract::Path(symbol): axum::extract::Path<String>,
-) -> Json<serde_json::Value> {
+    Path(symbol): Path<String>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+
     match state.redis.get_price(&symbol).await {
-        Some(price) => Json(json!({ "symbol": symbol, "price": price })),
-        None => Json(json!({ "symbol": symbol, "error": "price not found" })),
+        Ok(price) => (
+            StatusCode::OK,
+            Json(json!(PriceInfo {
+                symbol,
+                price,
+                timestamp: time,
+            })),
+        ),
+        Err(PriceError::NotFound) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "symbol": symbol, "error": "price not found" })),
+        ),
+        Err(PriceError::RedisError(e)) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("redis error: {}", e) })),
+        ),
     }
 }
 
