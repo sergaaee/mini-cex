@@ -1,0 +1,33 @@
+version: "3.9"
+
+services:
+  redis-aggregator:
+    image: redis
+    container_name: redis-aggregator
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 2s
+      retries: 10
+
+
+  aggregator:
+    build:
+      context: .
+      dockerfile: aggregator/Dockerfile
+    container_name: aggregator
+    depends_on:
+      redis-aggregator:
+        condition: service_healthy
+
+
+  server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    container_name: server
+    depends_on:
+      redis-aggregator:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
