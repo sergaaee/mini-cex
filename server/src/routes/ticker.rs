@@ -24,7 +24,10 @@ pub async fn get_price_handler(
     }
 }
 
-pub async fn get_book_handler(State(state): State<SharedState>) -> Json<serde_json::Value> {
+pub async fn get_book_handler(
+    State(state): State<SharedState>,
+    Path(symbol): Path<String>,
+) -> Json<serde_json::Value> {
     // return top 10 levels
     let buy = state.book_buy.read();
     let sell = state.book_sell.read();

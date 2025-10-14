@@ -1,12 +1,11 @@
-use redis::AsyncCommands;
 use crate::errors::price::PriceError;
 use crate::RedisClient;
-
+use redis::AsyncCommands;
 
 impl RedisClient {
     pub fn new() -> Self {
-        let redis_url = std::env::var("REDIS_URL")
-            .unwrap_or_else(|_| "redis://redis-aggregator:6379/".into());
+        let redis_url =
+            std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://redis-aggregator:6379/".into());
         let client = redis::Client::open(redis_url).expect("Invalid Redis URL");
         Self { client }
     }
@@ -18,7 +17,8 @@ impl RedisClient {
     }
 
     pub async fn get_price(&self, symbol: &str) -> Result<String, PriceError> {
-        let mut conn = self.client
+        let mut conn = self
+            .client
             .get_multiplexed_tokio_connection()
             .await
             .map_err(PriceError::RedisError)?;
@@ -31,4 +31,3 @@ impl RedisClient {
         }
     }
 }
-

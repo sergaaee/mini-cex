@@ -1,6 +1,6 @@
 use crate::models::Aggregator;
 use crate::ws;
-use common::models::price;
+use common::models::ticker;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -25,7 +25,7 @@ impl Aggregator {
     }
 
     /// Возвращает snapshot текущих котировок
-    pub async fn snapshot(&self) -> HashMap<String, price::Quote> {
+    pub async fn snapshot(&self) -> HashMap<String, ticker::Quote> {
         self.quotes.read().await.clone()
     }
 

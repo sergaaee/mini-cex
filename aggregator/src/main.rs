@@ -1,9 +1,9 @@
+mod models;
 mod price_aggregator;
 mod ws;
-mod models;
 
-use tokio::time::Duration;
 use common;
+use tokio::time::Duration;
 
 #[tokio::main]
 async fn main() -> redis::RedisResult<()> {
@@ -27,7 +27,6 @@ async fn main() -> redis::RedisResult<()> {
                     break;
                 }
             }
-
         }
 
         tokio::time::sleep(Duration::from_millis(500)).await;

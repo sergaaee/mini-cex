@@ -1,8 +1,8 @@
+use common::models::ticker;
+use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
-use serde::Deserialize;
 use tokio::sync::RwLock;
-use common::models::price;
 
 #[derive(Deserialize, Debug)]
 pub struct BinanceTicker {
@@ -34,5 +34,5 @@ pub struct BackpackTicker {
 
 #[derive(Clone)]
 pub struct Aggregator {
-    pub quotes: Arc<RwLock<HashMap<String, price::Quote>>>,
+    pub quotes: Arc<RwLock<HashMap<String, ticker::Quote>>>,
 }
