@@ -1,10 +1,11 @@
 use crate::SharedState;
 use common::models::{order, price};
-use common::errors;
+use common::errors::price::PriceError;
+use common::errors::order::OrderError;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 
-pub async fn get_price(state: SharedState, symbol: &str) -> Result<price::PriceInfo, errors::PriceError> {
+pub async fn get_price(state: SharedState, symbol: &str) -> Result<price::PriceInfo, PriceError> {
     let price = state.redis.get_price(symbol).await?;
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -21,7 +22,7 @@ pub async fn get_price(state: SharedState, symbol: &str) -> Result<price::PriceI
 pub async fn create_order(
     state: SharedState,
     order_req: order::OrderRequest,
-) -> Result<order::Order, errors::OrderError> {
+) -> Result<order::Order, OrderError> {
     // 1. Генерация уникального ID
     let id = {
         let mut counter = state.id_counter.write();

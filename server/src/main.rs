@@ -8,8 +8,9 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use common::{errors, RedisClient};
-use common::errors::{OrderError};
+use common::{RedisClient};
+use common::errors::order::OrderError;
+use common::errors::price::PriceError;
 use common::models::{price, order};
 use parking_lot::RwLock;
 use rust_decimal::Decimal;
@@ -80,11 +81,11 @@ async fn get_price_handler(
 ) -> (StatusCode, Json<serde_json::Value>) {
     match utils::get_price(state, &symbol).await {
         Ok(info) => (StatusCode::OK, Json(json!(info))),
-        Err(errors::PriceError::NotFound) => (
+        Err(PriceError::NotFound) => (
             StatusCode::NOT_FOUND,
             Json(json!({ "symbol": symbol, "error": "price not found" })),
         ),
-        Err(errors::PriceError::RedisError(e)) => (
+        Err(PriceError::RedisError(e)) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({ "error": format!("redis error: {}", e) })),
         ),

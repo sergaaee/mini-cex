@@ -1,7 +1,7 @@
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
-use crate::errors::OrderError;
+use crate::errors::order::OrderError;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Side {

@@ -1,5 +1,4 @@
-use axum::response::IntoResponse;
-use serde::{Deserialize, Serialize};
+use serde::{Serialize};
 
 pub mod errors;
 pub mod models;

@@ -1,5 +1,5 @@
 use redis::AsyncCommands;
-use crate::errors::PriceError;
+use crate::errors::price::PriceError;
 use crate::RedisClient;
 
 
