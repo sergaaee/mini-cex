@@ -1,16 +1,17 @@
 use crate::SharedState;
-use common::{Order, OrderError, OrderRequest, PriceError, PriceInfo, Side};
+use common::models::{order, price};
+use common::errors;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 
-pub async fn get_price(state: SharedState, symbol: &str) -> Result<PriceInfo, PriceError> {
+pub async fn get_price(state: SharedState, symbol: &str) -> Result<price::PriceInfo, errors::PriceError> {
     let price = state.redis.get_price(symbol).await?;
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_secs();
 
-    Ok(PriceInfo {
+    Ok(price::PriceInfo {
         symbol: symbol.to_string(),
         price,
         timestamp,
@@ -19,8 +20,8 @@ pub async fn get_price(state: SharedState, symbol: &str) -> Result<PriceInfo, Pr
 
 pub async fn create_order(
     state: SharedState,
-    order_req: OrderRequest,
-) -> Result<Order, OrderError> {
+    order_req: order::OrderRequest,
+) -> Result<order::Order, errors::OrderError> {
     // 1. Генерация уникального ID
     let id = {
         let mut counter = state.id_counter.write();
@@ -35,7 +36,7 @@ pub async fn create_order(
         .as_secs();
 
     // 2. Создаём ордер
-    let order = Order::new(
+    let order = order::Order::new(
         id,
         order_req.amount,
         order_req.price,
@@ -47,8 +48,8 @@ pub async fn create_order(
 
     // 3. Добавляем в книгу
     let book = match order.side {
-        Side::Buy => &state.book_buy,
-        Side::Sell => &state.book_sell,
+        order::Side::Buy => &state.book_buy,
+        order::Side::Sell => &state.book_sell,
     };
 
     let mut book_lock = book.write();

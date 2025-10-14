@@ -1,5 +1,5 @@
 use crate::ws;
-use common::Quote;
+use common::models::price;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -7,7 +7,7 @@ use tokio::sync::RwLock;
 
 #[derive(Clone)]
 pub struct Aggregator {
-    quotes: Arc<RwLock<HashMap<String, Quote>>>,
+    quotes: Arc<RwLock<HashMap<String, price::Quote>>>,
 }
 
 impl Aggregator {
@@ -29,7 +29,7 @@ impl Aggregator {
     }
 
     /// Возвращает snapshot текущих котировок
-    pub async fn snapshot(&self) -> HashMap<String, Quote> {
+    pub async fn snapshot(&self) -> HashMap<String, price::Quote> {
         self.quotes.read().await.clone()
     }
 

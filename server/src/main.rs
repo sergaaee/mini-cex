@@ -8,8 +8,9 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use common::{Order, OrderError, OrderRequest, OrderStatus, Price, Side};
-use common::{PriceError, PriceInfo, RedisClient};
+use common::{errors, RedisClient};
+use common::errors::{OrderError};
+use common::models::{price, order};
 use parking_lot::RwLock;
 use rust_decimal::Decimal;
 use serde_json::json;
@@ -22,9 +23,9 @@ type SharedState = Arc<AppState>;
 
 #[derive(Clone)]
 struct AppState {
-    price_tx: broadcast::Sender<Price>,
-    book_buy: Arc<RwLock<BTreeMap<Decimal, Vec<Order>>>>,
-    book_sell: Arc<RwLock<BTreeMap<Decimal, Vec<Order>>>>,
+    price_tx: broadcast::Sender<price::Price>,
+    book_buy: Arc<RwLock<BTreeMap<Decimal, Vec<order::Order>>>>,
+    book_sell: Arc<RwLock<BTreeMap<Decimal, Vec<order::Order>>>>,
     id_counter: Arc<RwLock<u64>>,
     redis: RedisClient,
 }
@@ -34,7 +35,7 @@ async fn main() {
     let subscriber = FmtSubscriber::new();
     tracing::subscriber::set_global_default(subscriber).unwrap();
 
-    let (tx, _rx) = broadcast::channel::<Price>(16);
+    let (tx, _rx) = broadcast::channel::<price::Price>(16);
 
     let redis = RedisClient::new();
 
@@ -79,11 +80,11 @@ async fn get_price_handler(
 ) -> (StatusCode, Json<serde_json::Value>) {
     match utils::get_price(state, &symbol).await {
         Ok(info) => (StatusCode::OK, Json(json!(info))),
-        Err(PriceError::NotFound) => (
+        Err(errors::PriceError::NotFound) => (
             StatusCode::NOT_FOUND,
             Json(json!({ "symbol": symbol, "error": "price not found" })),
         ),
-        Err(PriceError::RedisError(e)) => (
+        Err(errors::PriceError::RedisError(e)) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({ "error": format!("redis error: {}", e) })),
         ),
@@ -109,7 +110,7 @@ async fn get_book(State(state): State<SharedState>) -> Json<serde_json::Value> {
 
 async fn create_order_handler(
     State(state): State<SharedState>,
-    Json(req): Json<OrderRequest>,
+    Json(req): Json<order::OrderRequest>,
 ) -> Result<Json<serde_json::Value>, OrderError> {
     let order = create_order(state, req).await?;
     Ok(Json(json!({ "success": true, "order": order })))
