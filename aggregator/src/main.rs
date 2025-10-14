@@ -1,7 +1,7 @@
 mod price_aggregator;
 mod ws;
+mod models;
 
-use price_aggregator::Aggregator;
 use tokio::time::Duration;
 use common;
 
@@ -10,7 +10,7 @@ async fn main() -> redis::RedisResult<()> {
     // создаем Redis клиент
     let mut client = common::RedisClient::new();
 
-    let aggregator = Aggregator::new();
+    let aggregator = models::Aggregator::new();
 
     loop {
         if let Some(mid) = aggregator.calculate_mid().await {

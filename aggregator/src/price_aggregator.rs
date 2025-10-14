@@ -1,14 +1,10 @@
+use crate::models::Aggregator;
 use crate::ws;
 use common::models::price;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-
-#[derive(Clone)]
-pub struct Aggregator {
-    quotes: Arc<RwLock<HashMap<String, price::Quote>>>,
-}
 
 impl Aggregator {
     /// Создаёт Aggregator и запускает WS-потоки

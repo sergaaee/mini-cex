@@ -1,40 +1,12 @@
+use crate::models;
 use common::models::price;
 use futures_util::{SinkExt, StreamExt};
 use rust_decimal::Decimal;
-use serde::Deserialize;
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio_tungstenite::connect_async;
-
-#[derive(Deserialize, Debug)]
-struct BinanceTicker {
-    b: String,
-    a: String,
-}
-
-#[derive(Deserialize, Debug)]
-struct HibachiResponse {
-    data: HibachiTicker,
-}
-
-#[derive(Deserialize, Debug)]
-struct HibachiTicker {
-    bidPrice: String,
-    askPrice: String,
-}
-
-#[derive(Deserialize, Debug)]
-struct BackpackResponse {
-    data: BackpackTicker,
-}
-
-#[derive(Deserialize, Debug)]
-struct BackpackTicker {
-    b: String,
-    a: String,
-}
 
 pub async fn binance_ws(quotes: Arc<RwLock<HashMap<String, price::Quote>>>) {
     let url = "wss://stream.binance.com:9443/ws/btcusdt@ticker";
@@ -46,7 +18,9 @@ pub async fn binance_ws(quotes: Arc<RwLock<HashMap<String, price::Quote>>>) {
     while let Some(msg) = read.next().await {
         if let Ok(msg) = msg {
             if msg.is_text() {
-                if let Ok(data) = serde_json::from_str::<BinanceTicker>(&msg.to_text().unwrap()) {
+                if let Ok(data) =
+                    serde_json::from_str::<models::BinanceTicker>(&msg.to_text().unwrap())
+                {
                     let bid = Decimal::from_str_exact(&data.b).unwrap_or(Decimal::ZERO);
                     let ask = Decimal::from_str_exact(&data.a).unwrap_or(Decimal::ZERO);
                     let quote = price::Quote {
@@ -79,7 +53,7 @@ pub async fn backpack_ws(quotes: Arc<RwLock<HashMap<String, price::Quote>>>) {
         if let Ok(msg) = msg {
             if msg.is_text() {
                 if let Ok(wrapper) =
-                    serde_json::from_str::<BackpackResponse>(&msg.to_text().unwrap())
+                    serde_json::from_str::<models::BackpackResponse>(&msg.to_text().unwrap())
                 {
                     let data = wrapper.data;
                     let bid = Decimal::from_str_exact(&data.b).unwrap_or(Decimal::ZERO);
@@ -117,7 +91,7 @@ pub async fn hibachi_ws(quotes: Arc<RwLock<HashMap<String, price::Quote>>>) {
         if let Ok(msg) = msg {
             if msg.is_text() {
                 if let Ok(wrapper) =
-                    serde_json::from_str::<HibachiResponse>(&msg.to_text().unwrap())
+                    serde_json::from_str::<models::HibachiResponse>(&msg.to_text().unwrap())
                 {
                     let data = wrapper.data;
                     let bid = Decimal::from_str_exact(&data.askPrice).unwrap_or(Decimal::ZERO);
