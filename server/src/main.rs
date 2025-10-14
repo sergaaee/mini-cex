@@ -1,17 +1,20 @@
+mod utils;
+
+use crate::utils::create_order;
+use axum::extract::Path;
 use axum::http::StatusCode;
 use axum::{
     extract::State,
     routing::{get, post},
     Json, Router,
 };
-use common::{Order, OrderRequest, Price, Side};
+use common::{Order, OrderError, OrderRequest, OrderStatus, Price, Side};
 use common::{PriceError, PriceInfo, RedisClient};
 use parking_lot::RwLock;
 use rust_decimal::Decimal;
 use serde_json::json;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{collections::BTreeMap, net::SocketAddr, sync::Arc};
-use axum::extract::Path;
 use tokio::sync::broadcast;
 use tracing_subscriber::FmtSubscriber;
 
@@ -56,7 +59,7 @@ async fn main() {
     // маршруты
     let app = Router::new()
         .route("/book", get(get_book))
-        .route("/create_order", post(create_order))
+        .route("/create_order", post(create_order_handler))
         .route("/price/:symbol", get(get_price_handler))
         .with_state(state.clone());
 
@@ -74,20 +77,8 @@ async fn get_price_handler(
     State(state): State<SharedState>,
     Path(symbol): Path<String>,
 ) -> (StatusCode, Json<serde_json::Value>) {
-    let time = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-
-    match state.redis.get_price(&symbol).await {
-        Ok(price) => (
-            StatusCode::OK,
-            Json(json!(PriceInfo {
-                symbol,
-                price,
-                timestamp: time,
-            })),
-        ),
+    match utils::get_price(state, &symbol).await {
+        Ok(info) => (StatusCode::OK, Json(json!(info))),
         Err(PriceError::NotFound) => (
             StatusCode::NOT_FOUND,
             Json(json!({ "symbol": symbol, "error": "price not found" })),
@@ -116,39 +107,11 @@ async fn get_book(State(state): State<SharedState>) -> Json<serde_json::Value> {
     Json(json!({ "buy": top_buy, "sell": top_sell }))
 }
 
-async fn create_order(
+async fn create_order_handler(
     State(state): State<SharedState>,
     Json(req): Json<OrderRequest>,
-) -> Json<serde_json::Value> {
-    // 1. Генерация уникального ID
-    let id = {
-        let mut counter = state.id_counter.write();
-        let id = *counter;
-        *counter += 1;
-        id
-    };
-
-    // 2. Создаём ордер
-    let order = Order {
-        id,
-        price: req.price,
-        amount: req.amount,
-        order_type: req.order_type,
-        side: req.side,
-        client_id: req.client_id,
-    };
-
-    // 3. Добавляем в книгу
-    let book = match order.side {
-        Side::Buy => &state.book_buy,
-        Side::Sell => &state.book_sell,
-    };
-
-    let mut book_lock = book.write();
-    book_lock
-        .entry(order.price)
-        .or_insert_with(Vec::new)
-        .push(order.clone());
-
-    Json(json!({ "status": "ok", "order_id": id }))
+) -> Result<Json<serde_json::Value>, OrderError> {
+    let order = create_order(state, req).await?;
+    Ok(Json(json!({ "success": true, "order": order })))
 }
+
