@@ -12,10 +12,10 @@ pub struct Ticker {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Quote {
-    pub exchange: String,
-    pub symbol: String,
+    pub mid: Decimal,
     pub bid: Decimal,
     pub ask: Decimal,
+    pub timestamp: u64,
 }
 
 #[derive(Clone)]

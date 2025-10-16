@@ -2,18 +2,17 @@ mod models;
 mod price_aggregator;
 mod ws;
 
-use common;
 use tokio::time::Duration;
 
 #[tokio::main]
 async fn main() -> redis::RedisResult<()> {
     // создаем Redis клиент
-    let mut client = common::RedisClient::new();
+    let client = common::RedisClient::new();
 
     let aggregator = models::Aggregator::new();
 
     loop {
-        if let Some(mid) = aggregator.calculate_mid().await {
+        if let Some(mid) = aggregator.calculate_mid("BTC".to_string()).await {
             println!("Published mid: {}", mid);
 
             // публикуем в канал "prices"

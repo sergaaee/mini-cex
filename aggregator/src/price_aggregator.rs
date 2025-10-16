@@ -1,5 +1,6 @@
 use crate::models::Aggregator;
 use crate::ws;
+use common::Exchange;
 use common::models::ticker;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
@@ -25,24 +26,21 @@ impl Aggregator {
     }
 
     /// Возвращает snapshot текущих котировок
-    pub async fn snapshot(&self) -> HashMap<String, ticker::Quote> {
+    pub async fn snapshot(&self) -> HashMap<String, HashMap<Exchange, ticker::Quote>> {
         self.quotes.read().await.clone()
     }
 
     /// Вычисляет mid по текущим котировкам
-    pub async fn calculate_mid(&self) -> Option<Decimal> {
-        let snapshot = self.quotes.read().await;
+    pub async fn calculate_mid(&self, symbol: String) -> Option<Decimal> {
+        let mut snapshot = self.quotes.read().await.clone();
         if snapshot.is_empty() {
             return None;
         }
+        dbg!(&snapshot);
+        let entry = snapshot.entry(symbol.to_string()).or_default();
+        let sum: Decimal = entry.values().map(|q| q.mid).sum();
 
-        let sum = snapshot
-            .values()
-            .map(|q| (q.bid + q.ask) / Decimal::from(2u32))
-            .sum::<Decimal>();
-
-        // Сначала делим, потом округляем до 2 знаков
-        let mid = sum / Decimal::from(snapshot.len() as u64);
+        let mid = sum / Decimal::from(snapshot.entry(symbol.to_string()).or_default().len() as u64);
         Some(mid.round_dp(2))
     }
 }
