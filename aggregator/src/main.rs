@@ -28,6 +28,10 @@ async fn main() -> redis::RedisResult<()> {
             }
         }
 
+        if let Some(diff) = aggregator.calc_spread_percent("BTC".to_string()).await {
+            println!("Published diff: {}", diff);
+        }
+
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
 }
