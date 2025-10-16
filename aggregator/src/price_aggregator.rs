@@ -25,6 +25,9 @@ impl Aggregator {
         let quotes_clone = quotes.clone();
         tokio::spawn(ws::run_aster(quotes_clone));
 
+        let quotes_clone = quotes.clone();
+        tokio::spawn(ws::run_bybit(quotes_clone));
+
         Self { quotes }
     }
 

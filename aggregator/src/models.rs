@@ -31,6 +31,18 @@ pub struct HibachiTicker {
 }
 
 #[derive(Deserialize, Debug)]
+pub struct BybitResponse {
+    pub ts: u64,
+    pub data: BybitTicker,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct BybitTicker {
+    pub bid1Price: String,
+    pub ask1Price: String,
+}
+
+#[derive(Deserialize, Debug)]
 pub struct BackpackResponse {
     pub data: BackpackTicker,
 }

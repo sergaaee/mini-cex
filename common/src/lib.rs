@@ -17,6 +17,7 @@ pub enum Exchange {
     Backpack,
     Binance,
     Aster,
+    Bybit,
 }
 
 impl Display for Exchange {
@@ -26,6 +27,7 @@ impl Display for Exchange {
             Exchange::Backpack => write!(f, "Backpack"),
             Exchange::Binance => write!(f, "Binance"),
             Exchange::Aster => write!(f, "Aster"),
+            Exchange::Bybit => write!(f, "Bybit"),
         }
     }
 }

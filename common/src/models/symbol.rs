@@ -58,6 +58,7 @@ impl Symbol {
             Exchange::Aster => Self::get_all_symbols(),
             Exchange::Binance => Self::get_all_symbols(),
             Exchange::Backpack => Self::get_all_symbols(),
+            Exchange::Bybit => Self::get_all_symbols(),
             _ => vec![],
         }
     }

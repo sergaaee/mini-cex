@@ -50,6 +50,18 @@ pub async fn start_ws(
                         .await
                         .unwrap();
                 }
+                Exchange::Bybit => {
+                    let subscribe = json!({
+                        "op": "subscribe",
+                        "args": [format!("tickers.{sym_clone}USDT")]
+                    });
+                    ws_stream
+                        .send(tokio_tungstenite::tungstenite::Message::Text(
+                            subscribe.to_string().into(),
+                        ))
+                        .await
+                        .unwrap();
+                }
                 other => {}
             }
 
@@ -98,6 +110,10 @@ pub fn backpack_url(_: String) -> String {
 
 pub fn hibachi_url(_: String) -> String {
     "wss://data-api.hibachi.xyz/ws/market".to_string()
+}
+
+pub fn bybit_url(_: String) -> String {
+    "wss://stream.bybit.com/v5/public/linear".to_string()
 }
 
 /// Пример функции парсинга Binance
@@ -179,6 +195,25 @@ pub fn parse_hibachi(msg: &str) -> Option<ticker::Quote> {
     }
 }
 
+pub fn parse_bybit(msg: &str) -> Option<ticker::Quote> {
+    if let Ok(wrapper) = serde_json::from_str::<models::BybitResponse>(msg) {
+        let data = wrapper.data;
+        let bid = Decimal::from_str_exact(&data.ask1Price).unwrap_or(Decimal::ZERO);
+        let ask = Decimal::from_str_exact(&data.bid1Price).unwrap_or(Decimal::ZERO);
+        let mid = (ask + bid) / Decimal::TWO;
+        let timestamp = wrapper.ts;
+
+        Some(ticker::Quote {
+            mid,
+            bid,
+            ask,
+            timestamp,
+        })
+    } else {
+        None
+    }
+}
+
 /// Запуск Binance WS для нескольких монет
 pub async fn run_binance(quotes: Quotes) {
     let exchange = Exchange::Binance;
@@ -239,4 +274,14 @@ pub async fn run_hibachi(quotes: Quotes) {
         parse_hibachi,
     )
     .await;
+}
+
+pub async fn run_bybit(quotes: Quotes) {
+    let exchange = Exchange::Bybit;
+    let supported_symbols = symbol::Symbol::supported_by(exchange)
+        .into_iter()
+        .map(|s| s.as_ref().to_string())
+        .collect();
+
+    start_ws(quotes, exchange, supported_symbols, bybit_url, parse_bybit).await;
 }
