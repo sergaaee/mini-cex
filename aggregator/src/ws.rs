@@ -141,3 +141,42 @@ pub async fn hibachi_ws(quotes: Quotes) {
         }
     }
 }
+
+pub async fn aster_ws(quotes: Quotes) {
+    let exchange = Exchange::Aster;
+    let url = "wss://fstream.asterdex.com/ws/btcusdt@bookTicker";
+    let (ws_stream, _) = connect_async(url)
+        .await
+        .expect("Failed to connect to Aster WS");
+    let mut read = ws_stream;
+
+    while let Some(msg) = read.next().await {
+        if let Ok(msg) = msg {
+            if msg.is_text() {
+                if let Ok(data) =
+                    serde_json::from_str::<models::AsterTicker>(msg.to_text().unwrap())
+                {
+                    let bid = Decimal::from_str_exact(&data.b).unwrap_or(Decimal::ZERO);
+                    let ask = Decimal::from_str_exact(&data.a).unwrap_or(Decimal::ZERO);
+                    let mid = (ask + bid) / Decimal::TWO;
+                    let event_time_ms: u64 = data.E;
+                    let timestamp = event_time_ms / 1_000;
+
+                    let quote = ticker::Quote {
+                        mid,
+                        bid,
+                        ask,
+                        timestamp,
+                    };
+
+                    quotes
+                        .write()
+                        .await
+                        .entry("BTC".into())
+                        .or_default()
+                        .insert(exchange.clone(), quote);
+                }
+            }
+        }
+    }
+}

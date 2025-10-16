@@ -14,4 +14,5 @@ pub enum Exchange {
     Hibachi,
     Backpack,
     Binance,
+    Aster,
 }

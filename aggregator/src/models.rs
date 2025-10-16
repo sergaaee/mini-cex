@@ -13,6 +13,13 @@ pub struct BinanceTicker {
 }
 
 #[derive(Deserialize, Debug)]
+pub struct AsterTicker {
+    pub E: u64,
+    pub b: String,
+    pub a: String,
+}
+
+#[derive(Deserialize, Debug)]
 pub struct HibachiResponse {
     pub data: HibachiTicker,
 }
