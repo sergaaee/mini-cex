@@ -184,7 +184,7 @@ pub async fn run_binance(quotes: Quotes) {
     let exchange = Exchange::Binance;
     let supported_symbols = symbol::Symbol::supported_by(exchange)
         .into_iter()
-        .map(|s| s.as_str().to_string())
+        .map(|s| s.as_ref().to_string())
         .collect();
 
     start_ws(
@@ -201,7 +201,7 @@ pub async fn run_aster(quotes: Quotes) {
     let exchange = Exchange::Aster;
     let supported_symbols = symbol::Symbol::supported_by(exchange)
         .into_iter()
-        .map(|s| s.as_str().to_string())
+        .map(|s| s.as_ref().to_string())
         .collect();
 
     start_ws(quotes, exchange, supported_symbols, aster_url, parse_aster).await;
@@ -211,7 +211,7 @@ pub async fn run_backpack(quotes: Quotes) {
     let exchange = Exchange::Backpack;
     let supported_symbols = symbol::Symbol::supported_by(exchange)
         .into_iter()
-        .map(|s| s.as_str().to_string())
+        .map(|s| s.as_ref().to_string())
         .collect();
 
     start_ws(
@@ -228,7 +228,7 @@ pub async fn run_hibachi(quotes: Quotes) {
     let exchange = Exchange::Hibachi;
     let supported_symbols = symbol::Symbol::supported_by(exchange)
         .into_iter()
-        .map(|s| s.as_str().to_string())
+        .map(|s| s.as_ref().to_string())
         .collect();
 
     start_ws(

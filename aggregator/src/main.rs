@@ -2,6 +2,7 @@ mod models;
 mod price_aggregator;
 mod ws;
 
+use common::models::symbol::Symbol;
 use tokio::time::Duration;
 
 #[tokio::main]
@@ -28,8 +29,13 @@ async fn main() -> redis::RedisResult<()> {
             }
         }
 
-        if let Some(diff) = aggregator.calc_spread_percent("BTC".to_string()).await {
-            println!("Published diff: {}", diff);
+        for sym in Symbol::get_all_symbols() {
+            if let Some(diff) = aggregator
+                .calc_spread_percent(sym.as_ref().to_string())
+                .await
+            {
+                println!("{} Published diff: {}", sym.as_ref(), diff);
+            }
         }
 
         tokio::time::sleep(Duration::from_millis(500)).await;
