@@ -1,6 +1,6 @@
 use common::Exchange;
 use common::models::ticker;
-use serde::Deserialize;
+use serde::{Deserialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;

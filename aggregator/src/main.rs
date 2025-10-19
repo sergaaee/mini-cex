@@ -31,7 +31,7 @@ async fn main() -> redis::RedisResult<()> {
 
         for sym in Symbol::get_all_symbols() {
             if let Some(diff) = aggregator
-                .calc_spread_percent(sym.as_ref().to_string())
+                .calc_spread_opportunity(sym.as_ref().to_string())
                 .await
             {
                 println!("{} Published diff: {}", sym.as_ref(), diff);

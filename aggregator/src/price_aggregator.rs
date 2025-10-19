@@ -1,6 +1,6 @@
 use crate::models::Aggregator;
 use crate::ws;
-use common::Exchange;
+use common::{Exchange, SpreadOpportunity};
 use common::models::ticker;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
@@ -36,33 +36,48 @@ impl Aggregator {
         self.quotes.read().await.clone()
     }
 
-    pub async fn calc_spread_percent(&self, symbol: String) -> Option<Decimal> {
-        let mut snapshot = self.quotes.read().await.clone();
-        if snapshot.is_empty() {
+    pub async fn calc_spread_opportunity(&self, symbol: String) -> Option<SpreadOpportunity> {
+        let snapshot = self.quotes.read().await.clone();
+        let quotes = snapshot.get(&symbol)?;
+
+        if quotes.is_empty() {
             return None;
         }
 
-        let max_price = snapshot
-            .entry(symbol.to_string())
-            .or_default()
-            .values()
-            .map(|q| q.mid)
-            .max()?;
-        let min_price = snapshot
-            .entry(symbol.to_string())
-            .or_default()
-            .values()
-            .map(|q| q.mid)
-            .min()?;
+        // Найти минимальную и максимальную цену
+        let (min_exchange, min_quote) = quotes
+            .iter()
+            .min_by_key(|(_, q)| q.mid)?;
+        let (max_exchange, max_quote) = quotes
+            .iter()
+            .max_by_key(|(_, q)| q.mid)?;
 
-        if min_price.is_zero() || max_price.is_zero() {
+        // Проверяем совпадение таймстампов
+        if min_quote.timestamp != max_quote.timestamp {
             return None;
         }
 
-        let spread_percent = (max_price - min_price) / min_price * Decimal::from(100u32);
+        if min_quote.mid.is_zero() || max_quote.mid.is_zero() {
+            return None;
+        }
 
-        (spread_percent > Decimal::new(5, 1)).then(|| spread_percent.round_dp(3))
+        let spread_percent = (max_quote.mid - min_quote.mid) / min_quote.mid * Decimal::from(100u32);
+
+        // Порог, например, 0.5%
+        let threshold = Decimal::new(25, 2); // 0.5
+
+        if spread_percent > threshold {
+            Some(SpreadOpportunity {
+                symbol,
+                long_exchange: *min_exchange,
+                short_exchange: *max_exchange,
+                spread_percent: spread_percent.round_dp(3),
+            })
+        } else {
+            None
+        }
     }
+
 
     /// Вычисляет mid по текущим котировкам
     pub async fn calculate_mid(&self, symbol: String) -> Option<Decimal> {

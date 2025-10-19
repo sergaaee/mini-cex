@@ -1,3 +1,4 @@
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::{Display, Formatter};
@@ -18,6 +19,7 @@ pub enum Exchange {
     Binance,
     Aster,
     Bybit,
+    BloFin,
 }
 
 impl Display for Exchange {
@@ -28,6 +30,25 @@ impl Display for Exchange {
             Exchange::Binance => write!(f, "Binance"),
             Exchange::Aster => write!(f, "Aster"),
             Exchange::Bybit => write!(f, "Bybit"),
+            Exchange::BloFin => write!(f, "BloFin"),
         }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SpreadOpportunity {
+    pub symbol: String,
+    pub long_exchange: Exchange,
+    pub short_exchange: Exchange,
+    pub spread_percent: Decimal,
+}
+
+impl Display for SpreadOpportunity {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Symbol: {}\nLong on: {}\nShort on: {}\nSpread: {}%",
+            self.symbol, self.long_exchange, self.short_exchange, self.spread_percent
+        )
     }
 }
