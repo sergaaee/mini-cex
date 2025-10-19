@@ -12,3 +12,4 @@ redis = { version = "0.32.7", features = ["aio", "tokio-comp"] }
 serde = { version = "1.0.228", features = ["derive"] }
 futures-util = "0.3.31"
 tokio-tungstenite = { version = "0.28.0", features = ["native-tls"] }
+futures = "0.3.31"
