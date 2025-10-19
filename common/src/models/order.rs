@@ -3,6 +3,7 @@ use crate::models::symbol::Symbol;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
+use std::fmt::{write, Display, Formatter};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Side {
@@ -10,6 +11,19 @@ pub enum Side {
     Sell,
     #[serde(other)]
     Unknown,
+}
+
+impl Display for Side {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Side::Buy => write!(f, "long"),
+            Side::Sell => write!(f, "short"),
+
+            _ => {
+                panic!("Unknown side!")
+            }
+        }
+    }
 }
 
 impl Side {
