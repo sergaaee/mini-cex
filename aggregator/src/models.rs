@@ -1,6 +1,6 @@
 use common::Exchange;
 use common::models::ticker;
-use serde::{Deserialize};
+use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -40,6 +40,30 @@ pub struct BybitResponse {
 pub struct BybitTicker {
     pub bid1Price: String,
     pub ask1Price: String,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct BloFinResponse {
+    pub data: BloFinTicker,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct BloFinTicker {
+    pub bidPrice: String,
+    pub askPrice: String,
+    pub ts: u64,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct OKXResponse {
+    pub data: OKXTicker,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct OKXTicker {
+    pub bidPx: String,
+    pub askPx: String,
+    pub ts: u64,
 }
 
 #[derive(Deserialize, Debug)]

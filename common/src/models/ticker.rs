@@ -15,7 +15,7 @@ pub struct Quote {
     pub mid: Decimal,
     pub bid: Decimal,
     pub ask: Decimal,
-    pub timestamp: u64,
+    pub timestamp: u64, // ms
 }
 
 #[derive(Clone)]

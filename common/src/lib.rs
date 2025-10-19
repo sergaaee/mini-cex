@@ -20,6 +20,7 @@ pub enum Exchange {
     Aster,
     Bybit,
     BloFin,
+    OKX,
 }
 
 impl Display for Exchange {
@@ -31,6 +32,7 @@ impl Display for Exchange {
             Exchange::Aster => write!(f, "Aster"),
             Exchange::Bybit => write!(f, "Bybit"),
             Exchange::BloFin => write!(f, "BloFin"),
+            Exchange::OKX => write!(f, "OKX"),
         }
     }
 }

@@ -8,6 +8,7 @@ use serde_json::json;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio_tungstenite::connect_async;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
 /// Универсальная функция запуска WS для любой биржи
 pub async fn start_ws(
@@ -26,13 +27,25 @@ pub async fn start_ws(
 
         let handle = tokio::spawn(async move {
             let url = ws_url_fn(sym);
-            let (mut ws_stream, _) = connect_async(url).await.expect("Failed to connect WS");
+            let mut request = url
+                .clone()
+                .into_client_request()
+                .expect("Couldn't parse url");
+            request.headers_mut().insert(
+                "User-Agent",
+                "Mozilla/5.0 (compatible; aggregator-bot/1.0)"
+                    .parse()
+                    .unwrap(),
+            );
+            request.headers_mut().insert("Origin", url.parse().unwrap());
+
+            let (mut ws_stream, _) = connect_async(request).await.expect("Failed to connect WS");
 
             match exchange {
                 Exchange::Hibachi => {
                     let subscribe = json!({
                         "method": "subscribe",
-                        "parameters": { "subscriptions": [{"symbol": format!("{}/USDT-P", sym_clone), "topic": "ask_bid_price"}] }
+                        "parameters": { "subscriptions": [{"symbol": format!("{sym_clone}/USDT-P"), "topic": "ask_bid_price"}] }
                     });
                     ws_stream
                         .send(tokio_tungstenite::tungstenite::Message::Text(
@@ -42,7 +55,7 @@ pub async fn start_ws(
                         .unwrap();
                 }
                 Exchange::Backpack => {
-                    let subscribe = json!({ "method": "SUBSCRIBE", "params": [format!("bookTicker.{}_USDC_PERP", sym_clone)] });
+                    let subscribe = json!({ "method": "SUBSCRIBE", "params": [format!("bookTicker.{sym_clone}_USDC_PERP")] });
                     ws_stream
                         .send(tokio_tungstenite::tungstenite::Message::Text(
                             subscribe.to_string().into(),
@@ -54,6 +67,40 @@ pub async fn start_ws(
                     let subscribe = json!({
                         "op": "subscribe",
                         "args": [format!("tickers.{sym_clone}USDT")]
+                    });
+                    ws_stream
+                        .send(tokio_tungstenite::tungstenite::Message::Text(
+                            subscribe.to_string().into(),
+                        ))
+                        .await
+                        .unwrap();
+                }
+                Exchange::BloFin => {
+                    let subscribe = json!({
+                        "op": "subscribe",
+                        "args": [
+                            {
+                                "channel": "tickers",
+                                "instId": format!("{sym_clone}-USDT")
+                            }
+                        ]
+                    });
+                    ws_stream
+                        .send(tokio_tungstenite::tungstenite::Message::Text(
+                            subscribe.to_string().into(),
+                        ))
+                        .await
+                        .unwrap();
+                }
+                Exchange::OKX => {
+                    let subscribe = json!({
+                        "op": "subscribe",
+                        "args": [
+                            {
+                                "channel": "tickers",
+                                "instId": format!("{sym_clone}-USDT")
+                            }
+                        ]
                     });
                     ws_stream
                         .send(tokio_tungstenite::tungstenite::Message::Text(
@@ -116,13 +163,21 @@ pub fn bybit_url(_: String) -> String {
     "wss://stream.bybit.com/v5/public/linear".to_string()
 }
 
+pub fn blofin_url(_: String) -> String {
+    "wss://openapi.blofin.com/ws/public".to_string()
+}
+
+pub fn okx_url(_: String) -> String {
+    "wss://ws.okx.com:8443/ws/v5/public".to_string()
+}
+
 /// Пример функции парсинга Binance
 pub fn parse_binance(msg: &str) -> Option<ticker::Quote> {
     if let Ok(data) = serde_json::from_str::<models::BinanceTicker>(msg) {
         let bid = Decimal::from_str_exact(&data.b).unwrap_or(Decimal::ZERO);
         let ask = Decimal::from_str_exact(&data.a).unwrap_or(Decimal::ZERO);
         let mid = (bid + ask) / Decimal::TWO;
-        let timestamp = data.E / 1_000; // миллисекунды -> секунды
+        let timestamp = data.E / 1_000;
 
         Some(ticker::Quote {
             bid,
@@ -140,7 +195,7 @@ pub fn parse_aster(msg: &str) -> Option<ticker::Quote> {
         let bid = Decimal::from_str_exact(&data.b).unwrap_or(Decimal::ZERO);
         let ask = Decimal::from_str_exact(&data.a).unwrap_or(Decimal::ZERO);
         let mid = (bid + ask) / Decimal::TWO;
-        let timestamp = data.E / 1_000; // миллисекунды -> секунды
+        let timestamp = data.E;
 
         Some(ticker::Quote {
             bid,
@@ -159,7 +214,7 @@ pub fn parse_backpack(msg: &str) -> Option<ticker::Quote> {
         let bid = Decimal::from_str_exact(&data.b).unwrap_or(Decimal::ZERO);
         let ask = Decimal::from_str_exact(&data.a).unwrap_or(Decimal::ZERO);
         let event_time_us: u64 = data.E;
-        let timestamp = event_time_us / 1_000_000;
+        let timestamp = event_time_us / 1_000;
         let mid = (ask + bid) / Decimal::TWO;
 
         Some(ticker::Quote {
@@ -202,6 +257,44 @@ pub fn parse_bybit(msg: &str) -> Option<ticker::Quote> {
         let ask = Decimal::from_str_exact(&data.bid1Price).unwrap_or(Decimal::ZERO);
         let mid = (ask + bid) / Decimal::TWO;
         let timestamp = wrapper.ts;
+
+        Some(ticker::Quote {
+            mid,
+            bid,
+            ask,
+            timestamp,
+        })
+    } else {
+        None
+    }
+}
+
+pub fn parse_blofin(msg: &str) -> Option<ticker::Quote> {
+    if let Ok(wrapper) = serde_json::from_str::<models::BloFinResponse>(msg) {
+        let data = wrapper.data;
+        let bid = Decimal::from_str_exact(&data.askPrice).unwrap_or(Decimal::ZERO);
+        let ask = Decimal::from_str_exact(&data.bidPrice).unwrap_or(Decimal::ZERO);
+        let mid = (ask + bid) / Decimal::TWO;
+        let timestamp = data.ts;
+
+        Some(ticker::Quote {
+            mid,
+            bid,
+            ask,
+            timestamp,
+        })
+    } else {
+        None
+    }
+}
+
+pub fn parse_okx(msg: &str) -> Option<ticker::Quote> {
+    if let Ok(wrapper) = serde_json::from_str::<models::OKXResponse>(msg) {
+        let data = wrapper.data;
+        let bid = Decimal::from_str_exact(&data.askPx).unwrap_or(Decimal::ZERO);
+        let ask = Decimal::from_str_exact(&data.bidPx).unwrap_or(Decimal::ZERO);
+        let mid = (ask + bid) / Decimal::TWO;
+        let timestamp = data.ts;
 
         Some(ticker::Quote {
             mid,
@@ -284,4 +377,31 @@ pub async fn run_bybit(quotes: Quotes) {
         .collect();
 
     start_ws(quotes, exchange, supported_symbols, bybit_url, parse_bybit).await;
+}
+
+pub async fn run_blofin(quotes: Quotes) {
+    let exchange = Exchange::BloFin;
+    let supported_symbols = symbol::Symbol::supported_by(exchange)
+        .into_iter()
+        .map(|s| s.as_ref().to_string())
+        .collect();
+
+    start_ws(
+        quotes,
+        exchange,
+        supported_symbols,
+        blofin_url,
+        parse_blofin,
+    )
+    .await;
+}
+
+pub async fn run_okx(quotes: Quotes) {
+    let exchange = Exchange::OKX;
+    let supported_symbols = symbol::Symbol::supported_by(exchange)
+        .into_iter()
+        .map(|s| s.as_ref().to_string())
+        .collect();
+
+    start_ws(quotes, exchange, supported_symbols, okx_url, parse_okx).await;
 }

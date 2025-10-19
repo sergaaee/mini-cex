@@ -1,7 +1,7 @@
 use crate::models::Aggregator;
 use crate::ws;
-use common::{Exchange, SpreadOpportunity};
 use common::models::ticker;
+use common::{Exchange, SpreadOpportunity};
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -28,6 +28,12 @@ impl Aggregator {
         let quotes_clone = quotes.clone();
         tokio::spawn(ws::run_bybit(quotes_clone));
 
+        // let quotes_clone = quotes.clone();
+        // tokio::spawn(ws::run_blofin(quotes_clone));
+
+        // let quotes_clone = quotes.clone();
+        // tokio::spawn(ws::run_okx(quotes_clone));
+
         Self { quotes }
     }
 
@@ -45,12 +51,8 @@ impl Aggregator {
         }
 
         // Найти минимальную и максимальную цену
-        let (min_exchange, min_quote) = quotes
-            .iter()
-            .min_by_key(|(_, q)| q.mid)?;
-        let (max_exchange, max_quote) = quotes
-            .iter()
-            .max_by_key(|(_, q)| q.mid)?;
+        let (min_exchange, min_quote) = quotes.iter().min_by_key(|(_, q)| q.mid)?;
+        let (max_exchange, max_quote) = quotes.iter().max_by_key(|(_, q)| q.mid)?;
 
         // Проверяем совпадение таймстампов
         if min_quote.timestamp != max_quote.timestamp {
@@ -61,7 +63,8 @@ impl Aggregator {
             return None;
         }
 
-        let spread_percent = (max_quote.mid - min_quote.mid) / min_quote.mid * Decimal::from(100u32);
+        let spread_percent =
+            (max_quote.mid - min_quote.mid) / min_quote.mid * Decimal::from(100u32);
 
         // Порог, например, 0.5%
         let threshold = Decimal::new(25, 2); // 0.5
@@ -77,7 +80,6 @@ impl Aggregator {
             None
         }
     }
-
 
     /// Вычисляет mid по текущим котировкам
     pub async fn calculate_mid(&self, symbol: String) -> Option<Decimal> {

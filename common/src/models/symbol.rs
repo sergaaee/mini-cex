@@ -59,6 +59,8 @@ impl Symbol {
             Exchange::Binance => Self::get_all_symbols(),
             Exchange::Backpack => Self::get_all_symbols(),
             Exchange::Bybit => Self::get_all_symbols(),
+            Exchange::OKX => Self::get_all_symbols(),
+            Exchange::BloFin => vec![Symbol::BTC],
             _ => vec![],
         }
     }
