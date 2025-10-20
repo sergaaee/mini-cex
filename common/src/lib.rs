@@ -2,6 +2,7 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::{Display, Formatter};
+use strum_macros::Display;
 
 pub mod errors;
 pub mod models;
@@ -12,7 +13,7 @@ pub struct RedisClient {
     client: redis::Client,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash, Copy)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash, Copy, Display)]
 pub enum Exchange {
     Hibachi,
     Backpack,
@@ -21,20 +22,6 @@ pub enum Exchange {
     Bybit,
     BloFin,
     OKX,
-}
-
-impl Display for Exchange {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            Exchange::Hibachi => write!(f, "Hibachi"),
-            Exchange::Backpack => write!(f, "Backpack"),
-            Exchange::Binance => write!(f, "Binance"),
-            Exchange::Aster => write!(f, "Aster"),
-            Exchange::Bybit => write!(f, "Bybit"),
-            Exchange::BloFin => write!(f, "BloFin"),
-            Exchange::OKX => write!(f, "OKX"),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -13,25 +13,25 @@ impl Aggregator {
         let quotes = Arc::new(RwLock::new(HashMap::new()));
 
         // Запуск потоков
-        let quotes_clone = quotes.clone();
+        let quotes_clone = Arc::clone(&quotes);
         tokio::spawn(ws::run_binance(quotes_clone));
 
-        let quotes_clone = quotes.clone();
+        let quotes_clone = Arc::clone(&quotes);
         tokio::spawn(ws::run_backpack(quotes_clone));
 
-        let quotes_clone = quotes.clone();
+        let quotes_clone = Arc::clone(&quotes);
         tokio::spawn(ws::run_hibachi(quotes_clone));
 
-        let quotes_clone = quotes.clone();
+        let quotes_clone = Arc::clone(&quotes);
         tokio::spawn(ws::run_aster(quotes_clone));
 
-        let quotes_clone = quotes.clone();
+        let quotes_clone = Arc::clone(&quotes);
         tokio::spawn(ws::run_bybit(quotes_clone));
 
-        // let quotes_clone = quotes.clone();
+        // let quotes_clone = Arc::clone(&quotes);
         // tokio::spawn(ws::run_blofin(quotes_clone));
 
-        // let quotes_clone = quotes.clone();
+        // let quotes_clone = Arc::clone(&quotes);
         // tokio::spawn(ws::run_okx(quotes_clone));
 
         Self { quotes }
@@ -41,9 +41,8 @@ impl Aggregator {
     pub async fn snapshot(&self) -> HashMap<String, HashMap<Exchange, ticker::Quote>> {
         self.quotes.read().await.clone()
     }
-
     pub async fn calc_spread_opportunity(&self, symbol: String) -> Option<SpreadOpportunity> {
-        let snapshot = self.quotes.read().await.clone();
+        let snapshot = self.quotes.read().await;
         let quotes = snapshot.get(&symbol)?;
 
         if quotes.is_empty() {

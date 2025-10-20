@@ -1,10 +1,10 @@
 use crate::models::{self, Quotes};
+use crate::utils::create_subscribe_message;
 use common::Exchange;
 use common::models::symbol;
 use common::models::ticker;
 use futures_util::{SinkExt, StreamExt};
 use rust_decimal::Decimal;
-use serde_json::json;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio_tungstenite::connect_async;
@@ -41,75 +41,13 @@ pub async fn start_ws(
 
             let (mut ws_stream, _) = connect_async(request).await.expect("Failed to connect WS");
 
-            match exchange {
-                Exchange::Hibachi => {
-                    let subscribe = json!({
-                        "method": "subscribe",
-                        "parameters": { "subscriptions": [{"symbol": format!("{sym_clone}/USDT-P"), "topic": "ask_bid_price"}] }
-                    });
-                    ws_stream
-                        .send(tokio_tungstenite::tungstenite::Message::Text(
-                            subscribe.to_string().into(),
-                        ))
-                        .await
-                        .unwrap();
-                }
-                Exchange::Backpack => {
-                    let subscribe = json!({ "method": "SUBSCRIBE", "params": [format!("bookTicker.{sym_clone}_USDC_PERP")] });
-                    ws_stream
-                        .send(tokio_tungstenite::tungstenite::Message::Text(
-                            subscribe.to_string().into(),
-                        ))
-                        .await
-                        .unwrap();
-                }
-                Exchange::Bybit => {
-                    let subscribe = json!({
-                        "op": "subscribe",
-                        "args": [format!("tickers.{sym_clone}USDT")]
-                    });
-                    ws_stream
-                        .send(tokio_tungstenite::tungstenite::Message::Text(
-                            subscribe.to_string().into(),
-                        ))
-                        .await
-                        .unwrap();
-                }
-                Exchange::BloFin => {
-                    let subscribe = json!({
-                        "op": "subscribe",
-                        "args": [
-                            {
-                                "channel": "tickers",
-                                "instId": format!("{sym_clone}-USDT")
-                            }
-                        ]
-                    });
-                    ws_stream
-                        .send(tokio_tungstenite::tungstenite::Message::Text(
-                            subscribe.to_string().into(),
-                        ))
-                        .await
-                        .unwrap();
-                }
-                Exchange::OKX => {
-                    let subscribe = json!({
-                        "op": "subscribe",
-                        "args": [
-                            {
-                                "channel": "tickers",
-                                "instId": format!("{sym_clone}-USDT")
-                            }
-                        ]
-                    });
-                    ws_stream
-                        .send(tokio_tungstenite::tungstenite::Message::Text(
-                            subscribe.to_string().into(),
-                        ))
-                        .await
-                        .unwrap();
-                }
-                other => {}
+            if let Some(subscribe) = create_subscribe_message(exchange, &sym_clone) {
+                ws_stream
+                    .send(tokio_tungstenite::tungstenite::Message::Text(
+                        subscribe.to_string().into(),
+                    ))
+                    .await
+                    .unwrap();
             }
 
             while let Some(msg) = ws_stream.next().await {

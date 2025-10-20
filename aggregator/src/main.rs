@@ -10,10 +10,10 @@ use common::models::symbol::Symbol;
 use rust_decimal::Decimal;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
-use tokio::time::Duration;
 
 #[tokio::main]
 async fn main() -> redis::RedisResult<()> {
+    console_subscriber::init();
     // создаем Redis клиент
     //let client = common::RedisClient::new();
 

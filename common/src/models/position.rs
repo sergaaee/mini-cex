@@ -1,7 +1,7 @@
+use crate::models::order::Side;
 use crate::models::ticker::Quote;
 use async_trait::async_trait;
 use rust_decimal::Decimal;
-use crate::models::order::Side;
 
 #[async_trait]
 pub trait PositionManagement {
