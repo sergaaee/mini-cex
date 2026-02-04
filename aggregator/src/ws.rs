@@ -6,7 +6,8 @@ use common::models::ticker;
 use futures_util::{SinkExt, StreamExt};
 use rust_decimal::Decimal;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::thread::sleep;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
@@ -15,18 +16,18 @@ pub async fn start_ws(
     quotes: Quotes,
     exchange: Exchange,
     symbols: Vec<String>,
-    ws_url_fn: fn(String) -> String, // функция, которая возвращает URL для конкретной монеты
+    ws_url_fn: fn(&String) -> String, // функция, которая возвращает URL для конкретной монеты
     parse_fn: fn(&str) -> Option<ticker::Quote>, // функция парсинга сообщения в Quote
 ) {
     let mut handles = vec![];
 
     for sym in symbols {
+        sleep(Duration::from_millis(500));
+        println!("Starting WS for {} on {}", sym, exchange.to_string());
         let quotes_clone = Arc::clone(&quotes);
-        let sym_string = sym.to_string();
-        let sym_clone = sym.clone();
 
         let handle = tokio::spawn(async move {
-            let url = ws_url_fn(sym);
+            let url = ws_url_fn(&sym);
             let mut request = url
                 .clone()
                 .into_client_request()
@@ -41,7 +42,7 @@ pub async fn start_ws(
 
             let (mut ws_stream, _) = connect_async(request).await.expect("Failed to connect WS");
 
-            if let Some(subscribe) = create_subscribe_message(exchange, &sym_clone) {
+            if let Some(subscribe) = create_subscribe_message(exchange, &sym) {
                 ws_stream
                     .send(tokio_tungstenite::tungstenite::Message::Text(
                         subscribe.to_string().into(),
@@ -57,7 +58,7 @@ pub async fn start_ws(
                             quotes_clone
                                 .write()
                                 .await
-                                .entry(sym_string.clone())
+                                .entry(sym.to_string())
                                 .or_default()
                                 .insert(exchange.clone(), quote);
                         }
@@ -70,42 +71,42 @@ pub async fn start_ws(
     }
 
     for h in handles {
-        let _ = h.await;
+        let _ = h;
     }
 }
 
 /// Пример функции для генерации URL Binance
-pub fn binance_url(sym: String) -> String {
+pub fn binance_url(sym: &String) -> String {
     format!(
         "wss://stream.binance.com:9443/ws/{}usdt@ticker",
         sym.to_lowercase()
     )
 }
 
-pub fn aster_url(sym: String) -> String {
+pub fn aster_url(sym: &String) -> String {
     format!(
         "wss://fstream.asterdex.com/ws/{}usdt@bookTicker",
         sym.to_lowercase()
     )
 }
 
-pub fn backpack_url(_: String) -> String {
+pub fn backpack_url(_: &String) -> String {
     "wss://ws.backpack.exchange".to_string()
 }
 
-pub fn hibachi_url(_: String) -> String {
+pub fn hibachi_url(_: &String) -> String {
     "wss://data-api.hibachi.xyz/ws/market".to_string()
 }
 
-pub fn bybit_url(_: String) -> String {
+pub fn bybit_url(_: &String) -> String {
     "wss://stream.bybit.com/v5/public/linear".to_string()
 }
 
-pub fn blofin_url(_: String) -> String {
+pub fn blofin_url(_: &String) -> String {
     "wss://openapi.blofin.com/ws/public".to_string()
 }
 
-pub fn okx_url(_: String) -> String {
+pub fn okx_url(_: &String) -> String {
     "wss://ws.okx.com:8443/ws/v5/public".to_string()
 }
 

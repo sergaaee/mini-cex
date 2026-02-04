@@ -52,7 +52,7 @@ async fn main() {
             "/ticker/price/:symbol",
             get(routes::ticker::get_price_handler),
         )
-        .with_state(state.clone());
+        .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
     tracing::info!("Listening on {}", addr);

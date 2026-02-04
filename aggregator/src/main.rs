@@ -8,7 +8,10 @@ use crate::utils::get_client;
 use common::models::order::Side;
 use common::models::symbol::Symbol;
 use rust_decimal::Decimal;
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 
 #[tokio::main]
@@ -18,6 +21,8 @@ async fn main() -> redis::RedisResult<()> {
     //let client = common::RedisClient::new();
 
     let aggregator = Arc::new(Aggregator::new());
+    let active_spreads: Arc<RwLock<HashMap<String, Instant>>> =
+        Arc::new(RwLock::new(HashMap::new()));
 
     loop {
         // if let Some(mid) = aggregator.calculate_mid("BTC".to_string()).await {
@@ -40,33 +45,59 @@ async fn main() -> redis::RedisResult<()> {
 
         for sym in Symbol::get_all_symbols() {
             let aggregator_clone: Arc<Aggregator> = Arc::clone(&aggregator);
-            let sym_clone = sym.clone();
+            let active_spreads_clone = Arc::clone(&active_spreads);
 
             // Каждый символ в отдельном таске
             let handle: JoinHandle<()> = tokio::spawn(async move {
                 loop {
+                    let now = Instant::now();
+
                     if let Some(diff) = aggregator_clone
-                        .calc_spread_opportunity(sym_clone.as_ref().to_string())
+                        .calc_spread_opportunity(sym.as_ref().to_string())
                         .await
                     {
-                        println!("{} Spread detected: {}", sym_clone.as_ref(), diff);
+                        let mut active = active_spreads_clone.write().await;
 
-                        let long_client = get_client(diff.long_exchange);
-                        let short_client = get_client(diff.short_exchange);
+                        if !active.contains_key(sym.as_ref()) {
+                            // Новый спред появился
+                            active.insert(sym.as_ref().to_string(), now);
 
-                        // Buy и Sell параллельно
-                        let (buy_res, sell_res) = tokio::join!(
-                            long_client.open_position(sym_clone.as_ref(), Decimal::ONE, Side::Buy),
-                            short_client.open_position(
-                                sym_clone.as_ref(),
-                                Decimal::ONE,
-                                Side::Sell
-                            ),
-                        );
+                            println!("{} Spread detected: {}", sym.as_ref(), diff);
+                            drop(active);
 
-                        buy_res.unwrap();
-                        sell_res.unwrap();
+                            let long_client = get_client(diff.long_exchange);
+                            let short_client = get_client(diff.short_exchange);
+
+                            // Buy и Sell параллельно
+                            let open = Instant::now();
+                            let (buy_res, sell_res) = tokio::join!(
+                                long_client.open_position(sym.as_ref(), Decimal::ONE, Side::Buy),
+                                short_client.open_position(sym.as_ref(), Decimal::ONE, Side::Sell),
+                                // long_client.get_position(sym.as_ref()),
+                                // short_client.get_position(sym.as_ref())
+                            );
+                            // let duration_open = open.elapsed();
+                            // if let Some(buy_res) = buy_res.unwrap() {
+                            //     println!("{buy_res}");
+                            // }
+                            // if let Some(sell_res) = sell_res.unwrap() {
+                            //     println!("{sell_res}");
+                            // }
+                            // println!("Get duration {} ms", duration_open.as_millis());
+                        }
+                    } else {
+                        // Спред больше не существует — считаем время жизни
+                        let mut active = active_spreads_clone.write().await;
+                        if let Some(start) = active.remove(sym.as_ref()) {
+                            let duration = now.duration_since(start);
+                            println!(
+                                "Spread for {} lasted {:?} ms",
+                                sym.as_ref(),
+                                duration.as_millis()
+                            );
+                        }
                     }
+                    tokio::time::sleep(Duration::from_millis(100)).await;
                 }
             });
 
