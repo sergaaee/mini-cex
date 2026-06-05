@@ -15,3 +15,8 @@ tokio-tungstenite = { version = "0.28.0", features = ["native-tls"] }
 futures = "0.3.31"
 tracing = "0.1.41"
 console-subscriber = "0.4.1"
+reqwest = { version = "0.13", features = ["json"] }
+anyhow = "1.0"
+
+[profile.release]
+debug = true

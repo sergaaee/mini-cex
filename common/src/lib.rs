@@ -28,7 +28,9 @@ pub enum Exchange {
 pub struct SpreadOpportunity {
     pub symbol: String,
     pub long_exchange: Exchange,
+    pub long_exchange_price: Decimal,
     pub short_exchange: Exchange,
+    pub short_exchange_price: Decimal,
     pub spread_percent: Decimal,
 }
 
@@ -36,8 +38,13 @@ impl Display for SpreadOpportunity {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Symbol: {}\nLong on: {}\nShort on: {}\nSpread: {}%",
-            self.symbol, self.long_exchange, self.short_exchange, self.spread_percent
+            "Symbol: {}\nLong on: {} = {} \nShort on: {} = {} \nSpread: {}%",
+            self.symbol,
+            self.long_exchange,
+            self.long_exchange_price,
+            self.short_exchange,
+            self.short_exchange_price,
+            self.spread_percent
         )
     }
 }

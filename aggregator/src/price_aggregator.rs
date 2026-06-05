@@ -17,27 +17,27 @@ impl Aggregator {
         tokio::spawn(ws::run_binance(quotes_clone));
         println!("Binance started!");
 
-        let quotes_clone = Arc::clone(&quotes);
-        tokio::spawn(ws::run_backpack(quotes_clone));
-        println!("Backpack started!");
-
         // let quotes_clone = Arc::clone(&quotes);
-        // tokio::spawn(ws::run_hibachi(quotes_clone));
-        // println!("Hibachi started!");
+        // tokio::spawn(ws::run_backpack(quotes_clone));
+        // println!("Backpack started!");
 
         let quotes_clone = Arc::clone(&quotes);
-        tokio::spawn(ws::run_aster(quotes_clone));
-        println!("Aster started!");
-
-        let quotes_clone = Arc::clone(&quotes);
-        tokio::spawn(ws::run_bybit(quotes_clone));
-        println!("Bybit started!");
+        tokio::spawn(ws::run_hibachi(quotes_clone));
+        println!("Hibachi started!");
+        //
+        // let quotes_clone = Arc::clone(&quotes);
+        // tokio::spawn(ws::run_aster(quotes_clone));
+        // println!("Aster started!");
+        //
+        // let quotes_clone = Arc::clone(&quotes);
+        // tokio::spawn(ws::run_bybit(quotes_clone));
+        // println!("Bybit started!");
 
         // let quotes_clone = Arc::clone(&quotes);
         // tokio::spawn(ws::run_blofin(quotes_clone));
         //
-        let quotes_clone = Arc::clone(&quotes);
-        tokio::spawn(ws::run_okx(quotes_clone));
+        // let quotes_clone = Arc::clone(&quotes);
+        // tokio::spawn(ws::run_okx(quotes_clone));
 
         Self { quotes }
     }
@@ -56,10 +56,21 @@ impl Aggregator {
         }
 
         // Найти минимальную и максимальную цену
-        let (min_exchange, min_quote) = quotes.iter().min_by_key(|(_, q)| q.mid)?;
-        let (max_exchange, max_quote) = quotes.iter().max_by_key(|(_, q)| q.mid)?;
+        let (min_exchange, min_quote) =
+            quotes.iter().min_by_key(|(_, q)| q.ask)?;
 
-        if min_quote.timestamp != max_quote.timestamp {
+        let (max_exchange, max_quote) =
+            quotes.iter().max_by_key(|(_, q)| q.bid)?;
+
+        let age_diff =
+            max_quote.timestamp.abs_diff(min_quote.timestamp);
+
+        // ms
+        if age_diff > 100 {
+            return None;
+        }
+
+        if min_exchange == max_exchange {
             return None;
         }
 
@@ -68,15 +79,17 @@ impl Aggregator {
         }
 
         let spread_percent =
-            (max_quote.mid - min_quote.mid) / min_quote.mid * Decimal::from(100u32);
+            (max_quote.bid - min_quote.ask) / min_quote.ask * Decimal::from(100u32);
 
-        let threshold = Decimal::new(1, 1); // 0.5
+        let threshold = Decimal::new(1, 1); // 0.1%
 
         if spread_percent > threshold {
             Some(SpreadOpportunity {
                 symbol,
                 long_exchange: *min_exchange,
+                long_exchange_price: min_quote.ask.round_dp(1),
                 short_exchange: *max_exchange,
+                short_exchange_price: max_quote.bid.round_dp(1),
                 spread_percent: spread_percent.round_dp(3),
             })
         } else {

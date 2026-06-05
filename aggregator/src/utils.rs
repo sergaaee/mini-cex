@@ -1,8 +1,12 @@
+use anyhow::anyhow;
 use common::Exchange;
 use common::models::position::{
     AsterClient, BackpackClient, BinanceClient, BybitClient, HibachiClient, PositionManagement,
 };
+use reqwest::Client;
 use serde_json::json;
+use std::thread::sleep;
+use std::time::Duration;
 
 pub fn get_client(exchange: Exchange) -> Box<dyn PositionManagement + Send + Sync> {
     match exchange {
@@ -48,4 +52,31 @@ pub fn create_subscribe_message(exchange: Exchange, symbol: &str) -> Option<serd
         })),
         _ => None,
     }
+}
+
+pub async fn send_raw_message(text: &str) -> anyhow::Result<()> {
+    let bot_token = std::env::var("TELEGRAM_BOT_TOKEN")?;
+    let chat_ids: Vec<i64> = vec![5003767225, 479449574];
+    let client = Client::new();
+
+    let url = format!("https://api.telegram.org/bot{}/sendMessage", bot_token);
+
+    for chat_id in chat_ids {
+        let resp = client
+            .post(&url)
+            .json(&json!({
+                "chat_id": chat_id,
+                "text": text
+            }))
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            return Err(anyhow!("telegram send failed: {}", resp.text().await?));
+        }
+
+        sleep(Duration::from_secs(1));
+    }
+
+    Ok(())
 }

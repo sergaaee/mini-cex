@@ -4,18 +4,20 @@ mod utils;
 mod ws;
 
 use crate::models::Aggregator;
-use crate::utils::get_client;
+use crate::utils::{get_client, send_raw_message};
+use common::Exchange;
 use common::models::order::Side;
 use common::models::symbol::Symbol;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
+use std::fmt::format;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 
 #[tokio::main]
-async fn main() -> redis::RedisResult<()> {
+async fn main() -> anyhow::Result<()> {
     console_subscriber::init();
     // создаем Redis клиент
     //let client = common::RedisClient::new();
@@ -70,20 +72,62 @@ async fn main() -> redis::RedisResult<()> {
 
                             // Buy и Sell параллельно
                             let open = Instant::now();
-                            let (buy_res, sell_res) = tokio::join!(
-                                long_client.open_position(sym.as_ref(), Decimal::ONE, Side::Buy),
-                                short_client.open_position(sym.as_ref(), Decimal::ONE, Side::Sell),
-                                // long_client.get_position(sym.as_ref()),
-                                // short_client.get_position(sym.as_ref())
-                            );
+                            let qty = match sym {
+                                Symbol::BTC => Decimal::from_str_exact("0.001").unwrap(),
+                                // Symbol::ETH => Decimal::from_str_exact("0.05").unwrap(),
+                                // Symbol::SOL => Decimal::from_str_exact("1").unwrap(),
+                                _ => {
+                                    panic!("Unknown symbol!")
+                                }
+                            };
+
+                            if diff.long_exchange == Exchange::Hibachi {
+                                long_client
+                                    .open_position(
+                                        sym.as_ref(),
+                                        qty,
+                                        Side::Buy,
+                                        None,
+                                        Some(diff.short_exchange_price),
+                                    )
+                                    .await
+                                    .unwrap();
+                            } else {
+                                short_client
+                                    .open_position(
+                                        sym.as_ref(),
+                                        qty,
+                                        Side::Sell,
+                                        None,
+                                        Some(diff.long_exchange_price),
+                                    )
+                                    .await
+                                    .unwrap();
+                            }
+                            let text = format!("Spread detected:\n{}", diff);
+                            send_raw_message(text.as_str()).await.unwrap();
+                            // let (buy_res, sell_res) = tokio::join!(
+                            //     long_client.open_position(sym.as_ref(), qty, Side::Buy),
+                            //     short_client.open_position(sym.as_ref(), qty, Side::Sell),
+                            //     // long_client.get_position(sym.as_ref()),
+                            //     // short_client.get_position(sym.as_ref())
+                            // );
                             // let duration_open = open.elapsed();
-                            // if let Some(buy_res) = buy_res.unwrap() {
-                            //     println!("{buy_res}");
+                            // match (buy_res, sell_res) {
+                            //     (Ok(_), Ok(_)) => {}
+                            //     (Err(e), Ok(_)) => {
+                            //         eprintln!("Buy failed: {e}");
+                            //         // закрыть sell позицию
+                            //     }
+                            //     (Ok(_), Err(e)) => {
+                            //         eprintln!("Sell failed: {e}");
+                            //         // закрыть buy позицию
+                            //     }
+                            //     (Err(e1), Err(e2)) => {
+                            //         eprintln!("Both failed: {e1}, {e2}");
+                            //     }
                             // }
-                            // if let Some(sell_res) = sell_res.unwrap() {
-                            //     println!("{sell_res}");
-                            // }
-                            // println!("Get duration {} ms", duration_open.as_millis());
+                            // println!("Open duration {} ms", duration_open.as_millis());
                         }
                     } else {
                         // Спред больше не существует — считаем время жизни
@@ -97,7 +141,7 @@ async fn main() -> redis::RedisResult<()> {
                             );
                         }
                     }
-                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    //tokio::time::sleep(Duration::from_millis(100)).await;
                 }
             });
 
