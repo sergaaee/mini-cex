@@ -49,7 +49,7 @@ fn parse_spread_entry(fields: &[(String, redis::Value)]) -> Option<SpreadOpportu
 pub async fn consume_spreads(redis_url: String, tx: mpsc::Sender<SpreadOpportunity>) -> Result<()> {
     let redis_url = redis_url.as_str();
     let client = redis::Client::open(redis_url)?;
-    let mut conn = client.get_multiplexed_tokio_connection().await?;
+    let mut conn = client.get_multiplexed_async_connection().await?;
 
     let mut last_id = "$".to_string();
 

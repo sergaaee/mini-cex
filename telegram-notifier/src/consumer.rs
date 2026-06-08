@@ -46,7 +46,7 @@ fn parse_trade_entry(fields: &[(String, redis::Value)]) -> Option<TradeSignal> {
 
 pub async fn consume_trades(redis_url: String, tx: mpsc::Sender<TradeSignal>) -> Result<()> {
     let client = redis::Client::open(redis_url.as_str())?;
-    let mut conn = client.get_multiplexed_tokio_connection().await?;
+    let mut conn = client.get_multiplexed_async_connection().await?;
 
     let mut last_id = "$".to_string();
 

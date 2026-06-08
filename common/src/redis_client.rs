@@ -21,11 +21,11 @@ impl RedisClient {
     pub async fn get_connection(
         &self,
     ) -> redis::RedisResult<redis::aio::MultiplexedConnection> {
-        self.client.get_multiplexed_tokio_connection().await
+        self.client.get_multiplexed_async_connection().await
     }
 
     pub async fn set_price(&self, symbol: &str, price: &str) -> redis::RedisResult<()> {
-        let mut conn = self.client.get_multiplexed_tokio_connection().await?;
+        let mut conn = self.client.get_multiplexed_async_connection().await?;
         let key = format!("price:{}", symbol);
         conn.set(key, price).await
     }
@@ -33,7 +33,7 @@ impl RedisClient {
     pub async fn get_price(&self, symbol: &str) -> Result<String, PriceError> {
         let mut conn = self
             .client
-            .get_multiplexed_tokio_connection()
+            .get_multiplexed_async_connection()
             .await
             .map_err(PriceError::RedisError)?;
 
