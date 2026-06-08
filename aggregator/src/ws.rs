@@ -1,4 +1,4 @@
-use crate::metrics::{update_price_metrics, WS_MESSAGES_RECEIVED};
+use crate::metrics::{WS_MESSAGES_RECEIVED, update_price_metrics};
 use crate::models::{self, Quotes};
 use crate::publisher::{PriceEvent, PublisherHandle};
 use crate::utils::create_subscribe_message;
@@ -67,7 +67,9 @@ pub async fn start_ws(
                                 .as_millis() as u64;
                             // Обновляем Prometheus метрики
                             let exchange_str = exchange.to_string();
-                            WS_MESSAGES_RECEIVED.with_label_values(&[&exchange_str]).inc();
+                            WS_MESSAGES_RECEIVED
+                                .with_label_values(&[&exchange_str])
+                                .inc();
                             update_price_metrics(
                                 &sym_clone,
                                 &exchange_str,
@@ -150,13 +152,6 @@ pub fn parse_binance(msg: &str) -> Option<ticker::Quote> {
         let timestamp = data.timestamp; // ms from exchange
 
         let now = chrono::Utc::now().timestamp_millis() as u64;
-
-        println!(
-            "exchange_ts={} local_ts={} diff={}",
-            data.timestamp,
-            now,
-            now.saturating_sub(data.timestamp)
-        );
 
         Some(ticker::Quote {
             bid,
@@ -345,7 +340,15 @@ pub async fn run_aster(quotes: Quotes, publisher: PublisherHandle) {
         .map(|s| s.as_ref().to_string())
         .collect();
 
-    start_ws(quotes, publisher, exchange, supported_symbols, aster_url, parse_aster).await;
+    start_ws(
+        quotes,
+        publisher,
+        exchange,
+        supported_symbols,
+        aster_url,
+        parse_aster,
+    )
+    .await;
 }
 
 pub async fn run_backpack(quotes: Quotes, publisher: PublisherHandle) {
@@ -391,7 +394,15 @@ pub async fn run_bybit(quotes: Quotes, publisher: PublisherHandle) {
         .map(|s| s.as_ref().to_string())
         .collect();
 
-    start_ws(quotes, publisher, exchange, supported_symbols, bybit_url, parse_bybit).await;
+    start_ws(
+        quotes,
+        publisher,
+        exchange,
+        supported_symbols,
+        bybit_url,
+        parse_bybit,
+    )
+    .await;
 }
 
 pub async fn run_blofin(quotes: Quotes, publisher: PublisherHandle) {
@@ -419,5 +430,13 @@ pub async fn run_okx(quotes: Quotes, publisher: PublisherHandle) {
         .map(|s| s.as_ref().to_string())
         .collect();
 
-    start_ws(quotes, publisher, exchange, supported_symbols, okx_url, parse_okx).await;
+    start_ws(
+        quotes,
+        publisher,
+        exchange,
+        supported_symbols,
+        okx_url,
+        parse_okx,
+    )
+    .await;
 }
