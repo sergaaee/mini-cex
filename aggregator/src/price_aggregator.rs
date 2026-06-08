@@ -87,15 +87,15 @@ impl Aggregator {
             .unwrap()
             .as_millis() as u64;
 
-        let max_age_ms: u64 = 50;
+        let max_age_ms: u64 = 1_000;
         if now_ms.saturating_sub(min_quote.timestamp) > max_age_ms
             || now_ms.saturating_sub(max_quote.timestamp) > max_age_ms
         {
             return None; // stale quote from one of the exchanges
         }
 
-        // Both quotes must be within 50ms of each other
-        if min_quote.timestamp.abs_diff(max_quote.timestamp) > 50 {
+        // Both quotes must be within 100ms of each other
+        if min_quote.timestamp.abs_diff(max_quote.timestamp) > 100 {
             return None;
         }
 
