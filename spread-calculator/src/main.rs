@@ -7,7 +7,7 @@ use redis::streams::{StreamReadOptions, StreamReadReply};
 use redis::AsyncCommands;
 use rust_decimal::Decimal;
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
@@ -307,6 +307,9 @@ async fn spread_publisher_worker(
     }
 }
 
+const GROUP: &str = "spread-calculator";
+const CONSUMER: &str = "consumer-1";
+
 async fn consume_streams(
     redis_url: &str,
     symbols: Vec<String>,
@@ -318,24 +321,54 @@ async fn consume_streams(
     let client = redis::Client::open(redis_url)?;
     let mut conn = client.get_multiplexed_tokio_connection().await?;
 
-    let stream_keys: Vec<String> = symbols
-        .iter()
-        .map(|s| format!("prices:{}", s))
-        .collect();
+    let stream_keys: Vec<String> = symbols.iter().map(|s| format!("prices:{}", s)).collect();
 
-    let mut last_ids: Vec<String> = vec!["$".to_string(); stream_keys.len()];
+    // Create consumer groups starting at $ (skip existing backlog entirely)
+    for key in &stream_keys {
+        let result: redis::RedisResult<()> = redis::cmd("XGROUP")
+            .arg("CREATE").arg(key).arg(GROUP).arg("$").arg("MKSTREAM")
+            .query_async(&mut conn).await;
+        match result {
+            Ok(_) => info!(stream = %key, "Consumer group created"),
+            Err(e) if e.to_string().contains("BUSYGROUP") => {
+                debug!(stream = %key, "Consumer group already exists");
+            }
+            Err(e) => return Err(anyhow::anyhow!("XGROUP CREATE {}: {}", key, e)),
+        }
+    }
 
-    info!(streams = ?stream_keys, "Starting to consume streams");
+    // Flush any pending messages left from a previous crashed session — ACK without processing
+    let drain_opts = StreamReadOptions::default().group(GROUP, CONSUMER).count(10_000);
+    let zero_ids: Vec<&str> = vec!["0"; stream_keys.len()];
+    loop {
+        let pending: StreamReadReply = conn.xread_options(&stream_keys, &zero_ids, &drain_opts).await?;
+        let mut flushed = 0usize;
+        for stream in &pending.keys {
+            let ids: Vec<&str> = stream.ids.iter().map(|e| e.id.as_str()).collect();
+            if !ids.is_empty() {
+                let n: i64 = conn.xack(&stream.key, GROUP, &ids).await?;
+                flushed += n as usize;
+            }
+        }
+        if flushed == 0 { break; }
+        info!(flushed, "Flushed stale pending messages from previous session");
+    }
+
+    info!(streams = ?stream_keys, "Starting consumer group read loop");
+
+    // Large COUNT so a single read drains any burst backlog in one shot
+    let read_opts = StreamReadOptions::default().group(GROUP, CONSUMER).block(50).count(10_000);
+    let new_ids: Vec<&str> = vec![">"; stream_keys.len()];
 
     loop {
-        let opts = StreamReadOptions::default().block(1000).count(100);
-
         let result: redis::RedisResult<StreamReadReply> = conn
-            .xread_options(&stream_keys, &last_ids, &opts)
+            .xread_options(&stream_keys, &new_ids, &read_opts)
             .await;
 
         match result {
             Ok(reply) => {
+                let mut symbols_updated: HashSet<String> = HashSet::new();
+
                 for stream_key in reply.keys {
                     let symbol = stream_key
                         .key
@@ -343,53 +376,53 @@ async fn consume_streams(
                         .unwrap_or(&stream_key.key)
                         .to_string();
 
-                    let key_idx = stream_keys.iter().position(|k| k == &stream_key.key);
+                    let mut ids_to_ack: Vec<String> = Vec::with_capacity(stream_key.ids.len());
+                    // Last entry per exchange wins — stream entries are ordered oldest→newest
+                    let mut latest: HashMap<Exchange, QuoteData> = HashMap::new();
 
                     for entry in stream_key.ids {
-                        if let Some(idx) = key_idx {
-                            last_ids[idx] = entry.id.clone();
-                        }
-
-                        let fields: Vec<(String, redis::Value)> =
-                            entry.map.into_iter().collect();
-
-                        if let Some(stream_entry) = parse_stream_entry(&fields) {
-                            if let Some(exchange) = parse_exchange(&stream_entry.exchange) {
-                                let bid: Decimal =
-                                    stream_entry.bid.parse().unwrap_or_default();
-                                let ask: Decimal =
-                                    stream_entry.ask.parse().unwrap_or_default();
-                                let timestamp: u64 =
-                                    stream_entry.timestamp.parse().unwrap_or(0);
-
-                                let quote_data = QuoteData { bid, ask, timestamp };
-
-                                {
-                                    let mut store_guard = store.write().await;
-                                    store_guard
-                                        .entry(symbol.clone())
-                                        .or_default()
-                                        .insert(exchange, quote_data);
-                                }
-
-                                EVENTS_PROCESSED.inc();
-
-                                let opportunities = {
-                                    let store_guard = store.read().await;
-                                    if let Some(quotes) = store_guard.get(&symbol) {
-                                        update_best_prices(&symbol, quotes);
-                                        calculate_spreads(&symbol, quotes, publish_min_pct, max_quote_age_ms)
-                                    } else {
-                                        vec![]
-                                    }
-                                };
-
-                                for opp in opportunities {
-                                    if spread_tx.try_send(opp).is_err() {
-                                        warn!("Spread publish channel full, dropping opportunity");
-                                    }
-                                }
+                        ids_to_ack.push(entry.id.clone());
+                        let fields: Vec<(String, redis::Value)> = entry.map.into_iter().collect();
+                        if let Some(se) = parse_stream_entry(&fields) {
+                            if let Some(exchange) = parse_exchange(&se.exchange) {
+                                let bid: Decimal = se.bid.parse().unwrap_or_default();
+                                let ask: Decimal = se.ask.parse().unwrap_or_default();
+                                let timestamp: u64 = se.timestamp.parse().unwrap_or(0);
+                                latest.insert(exchange, QuoteData { bid, ask, timestamp });
                             }
+                        }
+                    }
+
+                    // ACK everything — processed or skipped, we never want to re-read old data
+                    if !ids_to_ack.is_empty() {
+                        let _: redis::RedisResult<i64> = conn.xack(&stream_key.key, GROUP, &ids_to_ack).await;
+                        EVENTS_PROCESSED.inc_by(ids_to_ack.len() as u64);
+                    }
+
+                    if !latest.is_empty() {
+                        let mut store_guard = store.write().await;
+                        let sym_quotes = store_guard.entry(symbol.clone()).or_default();
+                        for (exchange, quote) in latest {
+                            sym_quotes.insert(exchange, quote);
+                        }
+                        symbols_updated.insert(symbol);
+                    }
+                }
+
+                // Calculate spreads once per symbol after the whole batch is applied
+                for symbol in symbols_updated {
+                    let opportunities = {
+                        let store_guard = store.read().await;
+                        if let Some(quotes) = store_guard.get(&symbol) {
+                            update_best_prices(&symbol, quotes);
+                            calculate_spreads(&symbol, quotes, publish_min_pct, max_quote_age_ms)
+                        } else {
+                            vec![]
+                        }
+                    };
+                    for opp in opportunities {
+                        if spread_tx.try_send(opp).is_err() {
+                            warn!("Spread publish channel full, dropping opportunity");
                         }
                     }
                 }
