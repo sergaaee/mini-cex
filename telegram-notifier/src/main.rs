@@ -22,7 +22,7 @@ async fn main() -> Result<()> {
         .expect("TELEGRAM_BOT_TOKEN env var is required");
 
     let chat_ids: Vec<i64> = std::env::var("TELEGRAM_CHAT_IDS")
-        .unwrap_or_else(|_| "5003767225,479449574".into())
+        .unwrap_or_else(|_| "5003767225,479449574,363276843".into())
         .split(',')
         .filter_map(|s| s.trim().parse().ok())
         .collect();

@@ -251,7 +251,7 @@ fn sign_payload(payload: &[u8], private_key_hex: &str) -> Result<String, secp256
     let digest = Sha256::digest(payload);
 
     let secret_key = SecretKey::from_slice(
-        &hex::decode(private_key_hex).map_err(|_| secp256k1::Error::InvalidMessage)?,
+        &hex::decode(private_key_hex).map_err(|_| secp256k1::Error::InvalidPublicKey)?,
     )?;
 
     let msg = Message::from_digest_slice(&digest).map_err(|_| secp256k1::Error::InvalidMessage)?;
@@ -414,6 +414,54 @@ pub struct AsterClient;
 impl PositionManagement for AsterClient {
     async fn open_position(&self, symbol: &str, qty: Decimal, side: Side) -> Result<(), String> {
         println!("Aster: opening {}, quantity: {} {}", side, qty, symbol);
+        dotenv().ok();
+
+        let api_key = std::env::var("ASTER_API_KEY").map_err(|_| "Missing Aster API key")?;
+        let secret = std::env::var("ASTER_SECRET").map_err(|_| "Missing Aster secret")?;
+
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|e| e.to_string())?
+            .as_millis();
+
+        let (order_side, position_side) = match side {
+            Side::Buy => ("BUY", "LONG"),
+            Side::Sell => ("SELL", "SHORT"),
+            _ => {
+                panic!("Unknown side!")
+            }
+        };
+
+        let query = format!(
+            "type=MARKET&symbol={}USDT&side={}&quantity={}&positionSide={}&timestamp={}",
+            symbol, order_side, qty, position_side, timestamp
+        );
+
+        // HMAC подпись
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).map_err(|e| e.to_string())?;
+        mac.update(query.as_bytes());
+        let signature = hex::encode(mac.finalize().into_bytes());
+
+        let url = format!(
+            "https://fapi.asterdex.com/fapi/v1/order?{}&signature={}",
+            query, signature
+        );
+
+        let client = Client::new();
+        let resp = client
+            .post(&url)
+            .header("X-MBX-APIKEY", api_key)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        // .json::<BinanceOrder>()
+        // .await
+        // .unwrap();
+
+        let text = resp.text().await.unwrap();
+
+        println!("binance response = {:?}", text);
+
         Ok(())
     }
     async fn close_position(&self, symbol: &str) -> Result<(), String> {

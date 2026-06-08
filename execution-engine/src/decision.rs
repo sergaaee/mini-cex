@@ -1,5 +1,7 @@
 use common::models::order::Side;
-use common::models::position::{AsterClient, BinanceClient, BackpackClient, BybitClient, HibachiClient, PositionManagement};
+use common::models::position::{
+    AsterClient, BackpackClient, BinanceClient, BybitClient, HibachiClient, PositionManagement,
+};
 use common::{Exchange, SpreadOpportunity, TradeSignal};
 use rust_decimal::Decimal;
 use std::collections::HashMap;
@@ -72,7 +74,16 @@ impl DecisionEngine {
 
         self.last_trade.insert(opp.symbol.clone(), Instant::now());
 
-        let qty = self.trade_size_usd / opp.long_exchange_price;
+        let precision = match opp.symbol.as_str() {
+            "BTC" => 3,
+            "ETH" => 3,
+            "SOL" => 2,
+            _ => {
+                panic!("Unsupported symbol: {}", opp.symbol);
+            }
+        };
+
+        let qty = (self.trade_size_usd / opp.long_exchange_price).round_dp(precision);
         let dry_run = self.dry_run;
         let ts = SystemTime::now()
             .duration_since(UNIX_EPOCH)
