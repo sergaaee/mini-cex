@@ -49,6 +49,28 @@ services:
     ports:
       - "9092:9092"  # Prometheus metrics
 
+  execution-engine:
+    build:
+      context: .
+      dockerfile: execution-engine/Dockerfile
+    container_name: execution-engine
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      spread-calculator:
+        condition: service_started
+    environment:
+      - REDIS_URL=redis://redis:6379/
+      - METRICS_PORT=9093
+      - MIN_SPREAD_PCT=0.1
+      - TRADE_SIZE_USD=100
+      - COOLDOWN_SECS=30
+      - DRY_RUN=true
+      - RUST_LOG=execution_engine=info
+    ports:
+      - "9093:9093"  # Prometheus metrics
+
   prometheus:
     image: prom/prometheus:v2.53.4
     container_name: prometheus

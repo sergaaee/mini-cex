@@ -8,14 +8,17 @@ COPY Cargo.toml ./
 COPY aggregator/Cargo.toml ./aggregator/
 COPY common/Cargo.toml ./common/
 COPY spread-calculator/Cargo.toml ./spread-calculator/
+COPY execution-engine/Cargo.toml ./execution-engine/
 
 RUN mkdir -p aggregator/src && echo "fn main() {}" > aggregator/src/main.rs
 RUN mkdir -p common/src && echo "" > common/src/lib.rs
 RUN mkdir -p spread-calculator/src && echo "fn main() {}" > spread-calculator/src/main.rs
+RUN mkdir -p execution-engine/src && echo "fn main() {}" > execution-engine/src/main.rs
 
 COPY aggregator/src ./aggregator/src
 COPY common/src ./common/src
 COPY spread-calculator/src ./spread-calculator/src
+COPY execution-engine/src ./execution-engine/src
 
 RUN cargo build --package aggregator --release
 

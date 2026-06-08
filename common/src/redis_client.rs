@@ -1,6 +1,6 @@
 use crate::errors::price::PriceError;
 use crate::models::ticker::Quote;
-use crate::{Exchange, RedisClient};
+use crate::{Exchange, RedisClient, SpreadOpportunity};
 use redis::AsyncCommands;
 use redis::streams::StreamMaxlen;
 
@@ -9,6 +9,11 @@ impl RedisClient {
         let redis_url =
             std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://redis:6379/".into());
         let client = redis::Client::open(redis_url).expect("Invalid Redis URL");
+        Self { client }
+    }
+
+    pub fn from_url(url: &str) -> Self {
+        let client = redis::Client::open(url).expect("Invalid Redis URL");
         Self { client }
     }
 
@@ -66,6 +71,32 @@ impl RedisClient {
         redis::cmd("XADD")
             .arg(&stream_key)
             .arg(StreamMaxlen::Approx(10000))
+            .arg("*")
+            .arg(items)
+            .query_async(conn)
+            .await
+    }
+
+    /// Publishes a spread opportunity to the `spreads` Redis Stream.
+    pub async fn publish_spread(
+        &self,
+        conn: &mut redis::aio::MultiplexedConnection,
+        opportunity: &SpreadOpportunity,
+    ) -> redis::RedisResult<String> {
+        let items: &[(&str, String)] = &[
+            ("symbol", opportunity.symbol.clone()),
+            ("long_exchange", opportunity.long_exchange.to_string()),
+            ("long_exchange_price", opportunity.long_exchange_price.to_string()),
+            ("short_exchange", opportunity.short_exchange.to_string()),
+            ("short_exchange_price", opportunity.short_exchange_price.to_string()),
+            ("spread_percent", opportunity.spread_percent.to_string()),
+            ("size", opportunity.size.to_string()),
+            ("timestamp", opportunity.timestamp.to_string()),
+        ];
+
+        redis::cmd("XADD")
+            .arg("spreads")
+            .arg(StreamMaxlen::Approx(1000))
             .arg("*")
             .arg(items)
             .query_async(conn)

@@ -1,6 +1,6 @@
 use anyhow::Result;
 use axum::{routing::get, Router};
-use common::Exchange;
+use common::{Exchange, SpreadOpportunity};
 use lazy_static::lazy_static;
 use prometheus::{Encoder, GaugeVec, IntCounter, Opts, Registry, TextEncoder};
 use redis::streams::{StreamReadOptions, StreamReadReply};
@@ -9,47 +9,47 @@ use rust_decimal::Decimal;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
+use tokio::sync::mpsc;
 use tokio::sync::RwLock;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 lazy_static! {
     static ref REGISTRY: Registry = Registry::new();
 
-    /// Spread между биржами в процентах
-    /// Labels: symbol, exchange_high (где дороже), exchange_low (где дешевле)
     static ref SPREAD_PERCENT: GaugeVec = GaugeVec::new(
         Opts::new("spread_percent", "Spread between exchanges in percent"),
         &["symbol", "exchange_high", "exchange_low"]
     ).unwrap();
 
-    /// Абсолютный spread в единицах цены
     static ref SPREAD_ABSOLUTE: GaugeVec = GaugeVec::new(
         Opts::new("spread_absolute", "Absolute spread between exchanges"),
         &["symbol", "exchange_high", "exchange_low"]
     ).unwrap();
 
-    /// Лучший bid по символу
     static ref BEST_BID: GaugeVec = GaugeVec::new(
         Opts::new("best_bid", "Best bid price across exchanges"),
         &["symbol", "exchange"]
     ).unwrap();
 
-    /// Лучший ask по символу
     static ref BEST_ASK: GaugeVec = GaugeVec::new(
         Opts::new("best_ask", "Best ask price across exchanges"),
         &["symbol", "exchange"]
     ).unwrap();
 
-    /// Количество обработанных событий
     static ref EVENTS_PROCESSED: IntCounter = IntCounter::new(
         "spread_events_processed_total",
         "Total number of price events processed"
     ).unwrap();
 
-    /// Количество рассчитанных спредов
     static ref SPREADS_CALCULATED: IntCounter = IntCounter::new(
         "spreads_calculated_total",
         "Total number of spreads calculated"
+    ).unwrap();
+
+    static ref SPREADS_PUBLISHED: IntCounter = IntCounter::new(
+        "spreads_published_total",
+        "Total number of spread opportunities published to Redis"
     ).unwrap();
 }
 
@@ -60,6 +60,7 @@ fn register_metrics() {
     REGISTRY.register(Box::new(BEST_ASK.clone())).ok();
     REGISTRY.register(Box::new(EVENTS_PROCESSED.clone())).ok();
     REGISTRY.register(Box::new(SPREADS_CALCULATED.clone())).ok();
+    REGISTRY.register(Box::new(SPREADS_PUBLISHED.clone())).ok();
 }
 
 #[derive(Debug, Clone)]
@@ -69,7 +70,6 @@ struct QuoteData {
     timestamp: i64,
 }
 
-/// Хранилище последних котировок: symbol -> exchange -> QuoteData
 type QuoteStore = Arc<RwLock<HashMap<String, HashMap<Exchange, QuoteData>>>>;
 
 #[derive(Debug, Deserialize)]
@@ -121,23 +121,35 @@ fn parse_exchange(s: &str) -> Option<Exchange> {
     }
 }
 
-/// Рассчитывает спреды между биржами для одного символа
-fn calculate_spreads(symbol: &str, quotes: &HashMap<Exchange, QuoteData>) {
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Calculates spreads between all exchange pairs for a symbol.
+/// Returns opportunities where spread_pct >= publish_min_pct.
+fn calculate_spreads(
+    symbol: &str,
+    quotes: &HashMap<Exchange, QuoteData>,
+    publish_min_pct: Decimal,
+) -> Vec<SpreadOpportunity> {
+    let mut opportunities = Vec::new();
+
     if quotes.len() < 2 {
-        return;
+        return opportunities;
     }
 
     let exchanges: Vec<_> = quotes.iter().collect();
+    let ts = now_ms();
 
     for i in 0..exchanges.len() {
         for j in (i + 1)..exchanges.len() {
             let (ex1, q1) = exchanges[i];
             let (ex2, q2) = exchanges[j];
 
-            // Ищем арбитражную возможность:
-            // Можно купить на одной бирже (ask) и продать на другой (bid)
-
-            // Вариант 1: покупаем на ex1 (ask), продаём на ex2 (bid)
+            // Buy on ex1 (ask), sell on ex2 (bid)
             if q2.bid > q1.ask {
                 let spread_abs = q2.bid - q1.ask;
                 let spread_pct = (spread_abs / q1.ask) * Decimal::from(100);
@@ -148,19 +160,28 @@ fn calculate_spreads(symbol: &str, quotes: &HashMap<Exchange, QuoteData>) {
                 SPREAD_PERCENT
                     .with_label_values(&[symbol, &ex2.to_string(), &ex1.to_string()])
                     .set(spread_pct.to_string().parse().unwrap_or(0.0));
-
                 SPREADS_CALCULATED.inc();
 
                 debug!(
-                    symbol = symbol,
-                    buy_at = %ex1,
-                    sell_at = %ex2,
-                    spread_pct = %spread_pct,
+                    symbol, buy_at = %ex1, sell_at = %ex2, spread_pct = %spread_pct,
                     "Arbitrage opportunity detected"
                 );
+
+                if spread_pct >= publish_min_pct {
+                    opportunities.push(SpreadOpportunity {
+                        symbol: symbol.to_string(),
+                        long_exchange: *ex1,
+                        long_exchange_price: q1.ask,
+                        short_exchange: *ex2,
+                        short_exchange_price: q2.bid,
+                        spread_percent: spread_pct,
+                        size: Decimal::ZERO,
+                        timestamp: ts,
+                    });
+                }
             }
 
-            // Вариант 2: покупаем на ex2 (ask), продаём на ex1 (bid)
+            // Buy on ex2 (ask), sell on ex1 (bid)
             if q1.bid > q2.ask {
                 let spread_abs = q1.bid - q2.ask;
                 let spread_pct = (spread_abs / q2.ask) * Decimal::from(100);
@@ -171,22 +192,32 @@ fn calculate_spreads(symbol: &str, quotes: &HashMap<Exchange, QuoteData>) {
                 SPREAD_PERCENT
                     .with_label_values(&[symbol, &ex1.to_string(), &ex2.to_string()])
                     .set(spread_pct.to_string().parse().unwrap_or(0.0));
-
                 SPREADS_CALCULATED.inc();
 
                 debug!(
-                    symbol = symbol,
-                    buy_at = %ex2,
-                    sell_at = %ex1,
-                    spread_pct = %spread_pct,
+                    symbol, buy_at = %ex2, sell_at = %ex1, spread_pct = %spread_pct,
                     "Arbitrage opportunity detected"
                 );
+
+                if spread_pct >= publish_min_pct {
+                    opportunities.push(SpreadOpportunity {
+                        symbol: symbol.to_string(),
+                        long_exchange: *ex2,
+                        long_exchange_price: q2.ask,
+                        short_exchange: *ex1,
+                        short_exchange_price: q1.bid,
+                        spread_percent: spread_pct,
+                        size: Decimal::ZERO,
+                        timestamp: ts,
+                    });
+                }
             }
         }
     }
+
+    opportunities
 }
 
-/// Обновляет метрики лучших bid/ask
 fn update_best_prices(symbol: &str, quotes: &HashMap<Exchange, QuoteData>) {
     for (exchange, quote) in quotes {
         BEST_BID
@@ -209,42 +240,70 @@ async fn metrics_handler() -> String {
 async fn start_metrics_server(port: u16) {
     let app = Router::new().route("/metrics", get(metrics_handler));
     let addr = format!("0.0.0.0:{}", port);
-
-    info!(port = port, "Starting metrics server");
-
+    info!(port, "Starting metrics server");
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
+}
+
+/// Reads spread opportunities from a channel and publishes them to Redis Streams.
+async fn spread_publisher_worker(
+    redis_url: String,
+    mut rx: mpsc::Receiver<SpreadOpportunity>,
+) {
+    let redis_client = common::RedisClient::from_url(&redis_url);
+
+    let mut conn = match redis_client.get_connection().await {
+        Ok(c) => c,
+        Err(e) => {
+            error!("Spread publisher: failed to connect to Redis: {}", e);
+            return;
+        }
+    };
+
+    info!("Spread publisher worker started");
+
+    while let Some(opp) = rx.recv().await {
+        match redis_client.publish_spread(&mut conn, &opp).await {
+            Ok(_) => {
+                SPREADS_PUBLISHED.inc();
+                debug!(
+                    symbol = %opp.symbol,
+                    spread_pct = %opp.spread_percent,
+                    "Published spread opportunity"
+                );
+            }
+            Err(e) => {
+                warn!(error = %e, "Failed to publish spread, reconnecting...");
+                match redis_client.get_connection().await {
+                    Ok(new_conn) => conn = new_conn,
+                    Err(e) => error!("Spread publisher: reconnect failed: {}", e),
+                }
+            }
+        }
+    }
 }
 
 async fn consume_streams(
     redis_url: &str,
     symbols: Vec<String>,
     store: QuoteStore,
+    spread_tx: mpsc::Sender<SpreadOpportunity>,
+    publish_min_pct: Decimal,
 ) -> Result<()> {
     let client = redis::Client::open(redis_url)?;
     let mut conn = client.get_multiplexed_tokio_connection().await?;
 
-    // Собираем ключи стримов
     let stream_keys: Vec<String> = symbols
         .iter()
         .map(|s| format!("prices:{}", s))
         .collect();
 
-    // Начинаем читать с последних записей ($ = только новые)
     let mut last_ids: Vec<String> = vec!["$".to_string(); stream_keys.len()];
 
     info!(streams = ?stream_keys, "Starting to consume streams");
 
     loop {
-        let opts = StreamReadOptions::default()
-            .block(1000) // Блокируемся на 1 секунду
-            .count(100); // Читаем до 100 записей за раз
-
-        let keys_with_ids: Vec<(&str, &str)> = stream_keys
-            .iter()
-            .zip(last_ids.iter())
-            .map(|(k, id)| (k.as_str(), id.as_str()))
-            .collect();
+        let opts = StreamReadOptions::default().block(1000).count(100);
 
         let result: redis::RedisResult<StreamReadReply> = conn
             .xread_options(&stream_keys, &last_ids, &opts)
@@ -253,39 +312,33 @@ async fn consume_streams(
         match result {
             Ok(reply) => {
                 for stream_key in reply.keys {
-                    // Извлекаем symbol из ключа "prices:BTCUSDT" -> "BTCUSDT"
                     let symbol = stream_key
                         .key
                         .strip_prefix("prices:")
                         .unwrap_or(&stream_key.key)
                         .to_string();
 
-                    // Находим индекс для обновления last_id
-                    let key_idx = stream_keys
-                        .iter()
-                        .position(|k| k == &stream_key.key);
+                    let key_idx = stream_keys.iter().position(|k| k == &stream_key.key);
 
                     for entry in stream_key.ids {
-                        // Обновляем last_id
                         if let Some(idx) = key_idx {
                             last_ids[idx] = entry.id.clone();
                         }
 
-                        // Парсим поля
-                        let fields: Vec<(String, redis::Value)> = entry
-                            .map
-                            .into_iter()
-                            .collect();
+                        let fields: Vec<(String, redis::Value)> =
+                            entry.map.into_iter().collect();
 
                         if let Some(stream_entry) = parse_stream_entry(&fields) {
                             if let Some(exchange) = parse_exchange(&stream_entry.exchange) {
-                                let bid: Decimal = stream_entry.bid.parse().unwrap_or_default();
-                                let ask: Decimal = stream_entry.ask.parse().unwrap_or_default();
-                                let timestamp: i64 = stream_entry.timestamp.parse().unwrap_or(0);
+                                let bid: Decimal =
+                                    stream_entry.bid.parse().unwrap_or_default();
+                                let ask: Decimal =
+                                    stream_entry.ask.parse().unwrap_or_default();
+                                let timestamp: i64 =
+                                    stream_entry.timestamp.parse().unwrap_or(0);
 
                                 let quote_data = QuoteData { bid, ask, timestamp };
 
-                                // Обновляем хранилище
                                 {
                                     let mut store_guard = store.write().await;
                                     store_guard
@@ -296,12 +349,19 @@ async fn consume_streams(
 
                                 EVENTS_PROCESSED.inc();
 
-                                // Рассчитываем спреды
-                                {
+                                let opportunities = {
                                     let store_guard = store.read().await;
                                     if let Some(quotes) = store_guard.get(&symbol) {
                                         update_best_prices(&symbol, quotes);
-                                        calculate_spreads(&symbol, quotes);
+                                        calculate_spreads(&symbol, quotes, publish_min_pct)
+                                    } else {
+                                        vec![]
+                                    }
+                                };
+
+                                for opp in opportunities {
+                                    if spread_tx.try_send(opp).is_err() {
+                                        warn!("Spread publish channel full, dropping opportunity");
                                     }
                                 }
                             }
@@ -336,7 +396,6 @@ async fn main() -> Result<()> {
         .parse()
         .unwrap_or(9092);
 
-    // Символы для мониторинга (можно расширить через env)
     let symbols: Vec<String> = std::env::var("SYMBOLS")
         .unwrap_or_else(|_| "BTCUSDT,ETHUSDT".into())
         .split(',')
@@ -344,18 +403,26 @@ async fn main() -> Result<()> {
         .filter(|s| !s.is_empty())
         .collect();
 
+    // Minimum spread (%) to publish to Redis for the execution engine
+    let publish_min_pct: Decimal = std::env::var("PUBLISH_MIN_SPREAD_PCT")
+        .unwrap_or_else(|_| "0.05".into())
+        .parse()
+        .unwrap_or(Decimal::new(5, 2));
+
     info!(
         redis_url = %redis_url,
-        metrics_port = metrics_port,
+        metrics_port,
         symbols = ?symbols,
+        publish_min_pct = %publish_min_pct,
         "Starting spread calculator"
     );
 
     let store: QuoteStore = Arc::new(RwLock::new(HashMap::new()));
 
-    // Запускаем metrics server в отдельной задаче
-    tokio::spawn(start_metrics_server(metrics_port));
+    let (spread_tx, spread_rx) = mpsc::channel::<SpreadOpportunity>(256);
 
-    // Основной цикл потребления
-    consume_streams(&redis_url, symbols, store).await
+    tokio::spawn(start_metrics_server(metrics_port));
+    tokio::spawn(spread_publisher_worker(redis_url.clone(), spread_rx));
+
+    consume_streams(&redis_url, symbols, store, spread_tx, publish_min_pct).await
 }

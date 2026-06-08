@@ -16,3 +16,8 @@ scrape_configs:
     static_configs:
       - targets: ['spread-calculator:9092']
     scrape_interval: 1s  # Высокая частота для спредов
+
+  - job_name: 'execution-engine'
+    static_configs:
+      - targets: ['execution-engine:9093']
+    scrape_interval: 1s
