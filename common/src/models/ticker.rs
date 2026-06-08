@@ -17,7 +17,8 @@ pub struct Quote {
     pub bid_size: Decimal,
     pub ask: Decimal,
     pub ask_size: Decimal,
-    pub timestamp: u64, // ms
+    pub timestamp: u64,   // ms — exchange event time
+    pub received_at: u64, // ms — local aggregator receive time
 }
 
 #[derive(Clone)]

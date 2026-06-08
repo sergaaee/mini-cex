@@ -66,6 +66,7 @@ impl RedisClient {
             ("ask_size", quote.ask_size.to_string()),
             ("mid", quote.mid.to_string()),
             ("timestamp", quote.timestamp.to_string()),
+            ("received_at", quote.received_at.to_string()),
         ];
 
         redis::cmd("XADD")

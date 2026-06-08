@@ -60,7 +60,11 @@ pub async fn start_ws(
             while let Some(msg) = ws_stream.next().await {
                 if let Ok(msg) = msg {
                     if msg.is_text() {
-                        if let Some(quote) = parse_fn(msg.to_text().unwrap()) {
+                        if let Some(mut quote) = parse_fn(msg.to_text().unwrap()) {
+                            quote.received_at = SystemTime::now()
+                                .duration_since(UNIX_EPOCH)
+                                .unwrap()
+                                .as_millis() as u64;
                             // Обновляем Prometheus метрики
                             let exchange_str = exchange.to_string();
                             WS_MESSAGES_RECEIVED.with_label_values(&[&exchange_str]).inc();
@@ -152,6 +156,7 @@ pub fn parse_binance(msg: &str) -> Option<ticker::Quote> {
             ask_size,
             mid,
             timestamp,
+            received_at: 0,
         })
     } else {
         None
@@ -174,6 +179,7 @@ pub fn parse_aster(msg: &str) -> Option<ticker::Quote> {
             ask_size,
             mid,
             timestamp,
+            received_at: 0,
         })
     } else {
         None
@@ -197,6 +203,7 @@ pub fn parse_backpack(msg: &str) -> Option<ticker::Quote> {
             ask_size,
             mid,
             timestamp,
+            received_at: 0,
         })
     } else {
         None
@@ -224,6 +231,7 @@ pub fn parse_hibachi(msg: &str) -> Option<ticker::Quote> {
             ask_size,
             mid,
             timestamp,
+            received_at: 0,
         })
     } else {
         None
@@ -247,6 +255,7 @@ pub fn parse_bybit(msg: &str) -> Option<ticker::Quote> {
             ask,
             ask_size,
             timestamp,
+            received_at: 0,
         })
     } else {
         None
@@ -270,6 +279,7 @@ pub fn parse_blofin(msg: &str) -> Option<ticker::Quote> {
             ask,
             ask_size,
             timestamp,
+            received_at: 0,
         })
     } else {
         None
@@ -293,6 +303,7 @@ pub fn parse_okx(msg: &str) -> Option<ticker::Quote> {
             ask,
             ask_size,
             timestamp,
+            received_at: 0,
         })
     } else {
         None

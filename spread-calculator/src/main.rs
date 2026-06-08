@@ -52,8 +52,13 @@ lazy_static! {
         "Total number of spread opportunities published to Redis"
     ).unwrap();
 
+    static ref QUOTE_EVENT_TIMESTAMP_MS: GaugeVec = GaugeVec::new(
+        Opts::new("quote_event_timestamp_ms", "Last exchange-emitted quote timestamp per exchange (ms)"),
+        &["symbol", "exchange"]
+    ).unwrap();
+
     static ref QUOTE_RECEIVED_TIMESTAMP_MS: GaugeVec = GaugeVec::new(
-        Opts::new("quote_received_timestamp_ms", "Last received quote timestamp per exchange (ms)"),
+        Opts::new("quote_received_timestamp_ms", "When our aggregator received the quote (ms)"),
         &["symbol", "exchange"]
     ).unwrap();
 }
@@ -66,6 +71,7 @@ fn register_metrics() {
     REGISTRY.register(Box::new(EVENTS_PROCESSED.clone())).ok();
     REGISTRY.register(Box::new(SPREADS_CALCULATED.clone())).ok();
     REGISTRY.register(Box::new(SPREADS_PUBLISHED.clone())).ok();
+    REGISTRY.register(Box::new(QUOTE_EVENT_TIMESTAMP_MS.clone())).ok();
     REGISTRY.register(Box::new(QUOTE_RECEIVED_TIMESTAMP_MS.clone())).ok();
 }
 
@@ -73,7 +79,8 @@ fn register_metrics() {
 struct QuoteData {
     bid: Decimal,
     ask: Decimal,
-    timestamp: u64, // ms, from exchange (via Redis stream)
+    timestamp: u64,   // ms — exchange event time
+    received_at: u64, // ms — local aggregator receive time
 }
 
 type QuoteStore = Arc<RwLock<HashMap<String, HashMap<Exchange, QuoteData>>>>;
@@ -90,6 +97,7 @@ struct StreamEntry {
     #[allow(dead_code)]
     mid: String,
     timestamp: String,
+    received_at: String,
 }
 
 fn parse_stream_entry(fields: &[(String, redis::Value)]) -> Option<StreamEntry> {
@@ -111,6 +119,7 @@ fn parse_stream_entry(fields: &[(String, redis::Value)]) -> Option<StreamEntry> 
         ask_size: map.get("ask_size").cloned().unwrap_or_default(),
         mid: map.get("mid").cloned().unwrap_or_default(),
         timestamp: map.get("timestamp")?.clone(),
+        received_at: map.get("received_at").cloned().unwrap_or_default(),
     })
 }
 
@@ -249,7 +258,8 @@ fn update_best_prices(symbol: &str, quotes: &HashMap<Exchange, QuoteData>) {
         let ex = exchange.to_string();
         BEST_BID.with_label_values(&[symbol, &ex]).set(quote.bid.to_string().parse().unwrap_or(0.0));
         BEST_ASK.with_label_values(&[symbol, &ex]).set(quote.ask.to_string().parse().unwrap_or(0.0));
-        QUOTE_RECEIVED_TIMESTAMP_MS.with_label_values(&[symbol, &ex]).set(quote.timestamp as f64);
+        QUOTE_EVENT_TIMESTAMP_MS.with_label_values(&[symbol, &ex]).set(quote.timestamp as f64);
+        QUOTE_RECEIVED_TIMESTAMP_MS.with_label_values(&[symbol, &ex]).set(quote.received_at as f64);
     }
 }
 
@@ -388,7 +398,8 @@ async fn consume_streams(
                                 let bid: Decimal = se.bid.parse().unwrap_or_default();
                                 let ask: Decimal = se.ask.parse().unwrap_or_default();
                                 let timestamp: u64 = se.timestamp.parse().unwrap_or(0);
-                                latest.insert(exchange, QuoteData { bid, ask, timestamp });
+                                let received_at: u64 = se.received_at.parse().unwrap_or(0);
+                                latest.insert(exchange, QuoteData { bid, ask, timestamp, received_at });
                             }
                         }
                     }

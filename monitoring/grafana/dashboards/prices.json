@@ -1509,72 +1509,76 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "thresholds"
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "Age (ms)",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 5,
+            "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "line" }
           },
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 30
-              },
-              {
-                "color": "red",
-                "value": 50
-              }
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 30 },
+              { "color": "red", "value": 50 }
             ]
           },
           "unit": "ms",
-          "min": 0,
-          "max": 200
+          "min": 0
         },
         "overrides": []
       },
       "gridPos": {
-        "h": 7,
+        "h": 8,
         "w": 24,
         "x": 0,
         "y": 52
       },
       "id": 20,
       "options": {
-        "displayMode": "lcd",
-        "maxVizHeight": 300,
-        "minVizHeight": 16,
-        "minVizWidth": 8,
-        "namePlacement": "auto",
-        "orientation": "horizontal",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
+        "legend": {
+          "calcs": ["last", "mean", "max"],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true
         },
-        "showUnfilled": true,
-        "sizing": "auto",
-        "valueMode": "color"
+        "tooltip": { "hideZeros": false, "mode": "multi", "sort": "asc" }
       },
       "pluginVersion": "11.5.3",
       "targets": [
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "time() * 1000 - quote_received_timestamp_ms{symbol=~\"$symbol\"}",
-          "instant": true,
-          "legendFormat": "{{symbol}} / {{exchange}}",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "time() * 1000 - quote_event_timestamp_ms{symbol=~\"$symbol\"}",
+          "legendFormat": "event age — {{symbol}} / {{exchange}}",
           "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "time() * 1000 - quote_received_timestamp_ms{symbol=~\"$symbol\"}",
+          "legendFormat": "received age — {{symbol}} / {{exchange}}",
+          "refId": "B"
         }
       ],
-      "title": "Orderbook Age — Current (ms)",
-      "type": "bargauge"
+      "title": "Orderbook Age: Exchange Event vs Received (ms)",
+      "type": "timeseries"
     }
   ],
   "preload": false,
