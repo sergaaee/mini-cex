@@ -51,6 +51,11 @@ lazy_static! {
         "spreads_published_total",
         "Total number of spread opportunities published to Redis"
     ).unwrap();
+
+    static ref QUOTE_RECEIVED_TIMESTAMP_MS: GaugeVec = GaugeVec::new(
+        Opts::new("quote_received_timestamp_ms", "Last received quote timestamp per exchange (ms)"),
+        &["symbol", "exchange"]
+    ).unwrap();
 }
 
 fn register_metrics() {
@@ -61,13 +66,14 @@ fn register_metrics() {
     REGISTRY.register(Box::new(EVENTS_PROCESSED.clone())).ok();
     REGISTRY.register(Box::new(SPREADS_CALCULATED.clone())).ok();
     REGISTRY.register(Box::new(SPREADS_PUBLISHED.clone())).ok();
+    REGISTRY.register(Box::new(QUOTE_RECEIVED_TIMESTAMP_MS.clone())).ok();
 }
 
 #[derive(Debug, Clone)]
 struct QuoteData {
     bid: Decimal,
     ask: Decimal,
-    timestamp: i64,
+    timestamp: u64, // ms, from exchange (via Redis stream)
 }
 
 type QuoteStore = Arc<RwLock<HashMap<String, HashMap<Exchange, QuoteData>>>>;
@@ -130,10 +136,12 @@ fn now_ms() -> u64 {
 
 /// Calculates spreads between all exchange pairs for a symbol.
 /// Returns opportunities where spread_pct >= publish_min_pct.
+/// Skips any pair where either quote is older than max_age_ms.
 fn calculate_spreads(
     symbol: &str,
     quotes: &HashMap<Exchange, QuoteData>,
     publish_min_pct: Decimal,
+    max_age_ms: u64,
 ) -> Vec<SpreadOpportunity> {
     let mut opportunities = Vec::new();
 
@@ -148,6 +156,24 @@ fn calculate_spreads(
         for j in (i + 1)..exchanges.len() {
             let (ex1, q1) = exchanges[i];
             let (ex2, q2) = exchanges[j];
+
+            let age1 = ts.saturating_sub(q1.timestamp);
+            let age2 = ts.saturating_sub(q2.timestamp);
+
+            if age1 > max_age_ms {
+                warn!(
+                    symbol, exchange = %ex1, age_ms = age1, max_ms = max_age_ms,
+                    "Stale quote, skipping pair"
+                );
+                continue;
+            }
+            if age2 > max_age_ms {
+                warn!(
+                    symbol, exchange = %ex2, age_ms = age2, max_ms = max_age_ms,
+                    "Stale quote, skipping pair"
+                );
+                continue;
+            }
 
             // Buy on ex1 (ask), sell on ex2 (bid)
             if q2.bid > q1.ask {
@@ -220,12 +246,10 @@ fn calculate_spreads(
 
 fn update_best_prices(symbol: &str, quotes: &HashMap<Exchange, QuoteData>) {
     for (exchange, quote) in quotes {
-        BEST_BID
-            .with_label_values(&[symbol, &exchange.to_string()])
-            .set(quote.bid.to_string().parse().unwrap_or(0.0));
-        BEST_ASK
-            .with_label_values(&[symbol, &exchange.to_string()])
-            .set(quote.ask.to_string().parse().unwrap_or(0.0));
+        let ex = exchange.to_string();
+        BEST_BID.with_label_values(&[symbol, &ex]).set(quote.bid.to_string().parse().unwrap_or(0.0));
+        BEST_ASK.with_label_values(&[symbol, &ex]).set(quote.ask.to_string().parse().unwrap_or(0.0));
+        QUOTE_RECEIVED_TIMESTAMP_MS.with_label_values(&[symbol, &ex]).set(quote.timestamp as f64);
     }
 }
 
@@ -289,6 +313,7 @@ async fn consume_streams(
     store: QuoteStore,
     spread_tx: mpsc::Sender<SpreadOpportunity>,
     publish_min_pct: Decimal,
+    max_quote_age_ms: u64,
 ) -> Result<()> {
     let client = redis::Client::open(redis_url)?;
     let mut conn = client.get_multiplexed_tokio_connection().await?;
@@ -334,7 +359,7 @@ async fn consume_streams(
                                     stream_entry.bid.parse().unwrap_or_default();
                                 let ask: Decimal =
                                     stream_entry.ask.parse().unwrap_or_default();
-                                let timestamp: i64 =
+                                let timestamp: u64 =
                                     stream_entry.timestamp.parse().unwrap_or(0);
 
                                 let quote_data = QuoteData { bid, ask, timestamp };
@@ -353,7 +378,7 @@ async fn consume_streams(
                                     let store_guard = store.read().await;
                                     if let Some(quotes) = store_guard.get(&symbol) {
                                         update_best_prices(&symbol, quotes);
-                                        calculate_spreads(&symbol, quotes, publish_min_pct)
+                                        calculate_spreads(&symbol, quotes, publish_min_pct, max_quote_age_ms)
                                     } else {
                                         vec![]
                                     }
@@ -409,11 +434,18 @@ async fn main() -> Result<()> {
         .parse()
         .unwrap_or(Decimal::new(5, 2));
 
+    // Max age of an exchange quote before it is considered stale (ms)
+    let max_quote_age_ms: u64 = std::env::var("MAX_QUOTE_AGE_MS")
+        .unwrap_or_else(|_| "50".into())
+        .parse()
+        .unwrap_or(50);
+
     info!(
         redis_url = %redis_url,
         metrics_port,
         symbols = ?symbols,
         publish_min_pct = %publish_min_pct,
+        max_quote_age_ms,
         "Starting spread calculator"
     );
 
@@ -424,5 +456,5 @@ async fn main() -> Result<()> {
     tokio::spawn(start_metrics_server(metrics_port));
     tokio::spawn(spread_publisher_worker(redis_url.clone(), spread_rx));
 
-    consume_streams(&redis_url, symbols, store, spread_tx, publish_min_pct).await
+    consume_streams(&redis_url, symbols, store, spread_tx, publish_min_pct, max_quote_age_ms).await
 }

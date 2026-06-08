@@ -1500,6 +1500,81 @@
       ],
       "title": "Execution Engine: Skip Reasons Rate",
       "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 30
+              },
+              {
+                "color": "red",
+                "value": 50
+              }
+            ]
+          },
+          "unit": "ms",
+          "min": 0,
+          "max": 200
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 52
+      },
+      "id": 20,
+      "options": {
+        "displayMode": "lcd",
+        "maxVizHeight": 300,
+        "minVizHeight": 16,
+        "minVizWidth": 8,
+        "namePlacement": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true,
+        "sizing": "auto",
+        "valueMode": "color"
+      },
+      "pluginVersion": "11.5.3",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "time() * 1000 - quote_received_timestamp_ms{symbol=~\"$symbol\"}",
+          "instant": true,
+          "legendFormat": "{{symbol}} / {{exchange}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Orderbook Age — Current (ms)",
+      "type": "bargauge"
     }
   ],
   "preload": false,
@@ -1546,6 +1621,6 @@
   "timezone": "browser",
   "title": "Crypto Price Aggregator",
   "uid": "crypto-aggregator",
-  "version": 1,
+  "version": 2,
   "weekStart": ""
 }

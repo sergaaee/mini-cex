@@ -82,14 +82,20 @@ impl Aggregator {
 
         let (max_exchange, max_quote) = quotes.iter().max_by_key(|(_, q)| q.bid)?;
         //
-        // let age_diff = max_quote.timestamp.abs_diff(min_quote.timestamp);
-        //
-        // // ms
-        // if age_diff > 100 {
-        //     return None;
-        // }
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
 
-        if (max_quote.timestamp as i64 - min_quote.timestamp as i64).abs() > 50 {
+        let max_age_ms: u64 = 50;
+        if now_ms.saturating_sub(min_quote.timestamp) > max_age_ms
+            || now_ms.saturating_sub(max_quote.timestamp) > max_age_ms
+        {
+            return None; // stale quote from one of the exchanges
+        }
+
+        // Both quotes must be within 50ms of each other
+        if min_quote.timestamp.abs_diff(max_quote.timestamp) > 50 {
             return None;
         }
 

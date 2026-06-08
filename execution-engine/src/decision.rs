@@ -44,6 +44,24 @@ impl DecisionEngine {
     pub fn evaluate(&mut self, opp: SpreadOpportunity) {
         SPREADS_RECEIVED.with_label_values(&[&opp.symbol]).inc();
 
+        // Reject opportunities that are already stale by the time we process them
+        let now_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let opp_age_ms = now_ms.saturating_sub(opp.timestamp);
+        if opp_age_ms > 1_000 {
+            debug!(
+                symbol = %opp.symbol,
+                age_ms = opp_age_ms,
+                "Stale opportunity (Redis/processing lag), skipping"
+            );
+            TRADES_SKIPPED
+                .with_label_values(&[&opp.symbol, "stale"])
+                .inc();
+            return;
+        }
+
         if opp.spread_percent < self.min_spread_pct {
             debug!(
                 symbol = %opp.symbol,

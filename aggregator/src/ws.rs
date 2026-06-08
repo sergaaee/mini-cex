@@ -143,7 +143,7 @@ pub fn parse_binance(msg: &str) -> Option<ticker::Quote> {
         let ask = Decimal::from_str_exact(&data.best_ask).unwrap_or(Decimal::ZERO);
         let ask_size = Decimal::from_str_exact(&data.best_ask_size).unwrap_or(Decimal::ZERO);
         let mid = (bid + ask) / Decimal::TWO;
-        let timestamp = data.timestamp / 1_000;
+        let timestamp = data.timestamp; // ms from exchange
 
         Some(ticker::Quote {
             bid,
@@ -165,7 +165,7 @@ pub fn parse_aster(msg: &str) -> Option<ticker::Quote> {
         let ask = Decimal::from_str_exact(&data.best_ask).unwrap_or(Decimal::ZERO);
         let ask_size = Decimal::from_str_exact(&data.best_ask_size).unwrap_or(Decimal::ZERO);
         let mid = (bid + ask) / Decimal::TWO;
-        let timestamp = data.timestamp / 1_000;
+        let timestamp = data.timestamp; // ms from exchange
 
         Some(ticker::Quote {
             bid,
@@ -188,7 +188,7 @@ pub fn parse_backpack(msg: &str) -> Option<ticker::Quote> {
         let ask = Decimal::from_str_exact(&data.best_ask).unwrap_or(Decimal::ZERO);
         let ask_size = Decimal::from_str_exact(&data.best_ask_size).unwrap_or(Decimal::ZERO);
         let mid = (bid + ask) / Decimal::TWO;
-        let timestamp = data.timestamp / 1_000;
+        let timestamp = data.timestamp; // ms from exchange
 
         Some(ticker::Quote {
             bid,
@@ -211,10 +211,11 @@ pub fn parse_hibachi(msg: &str) -> Option<ticker::Quote> {
         let ask = Decimal::from_str_exact(&data.best_ask).unwrap_or(Decimal::ZERO);
         let ask_size = Decimal::from_str_exact(&data.best_ask_size).unwrap_or(Decimal::ZERO);
         let mid = (bid + ask) / Decimal::TWO;
+        // Hibachi doesn't send a timestamp — use local receive time in ms
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
-            .as_secs();
+            .as_millis() as u64;
 
         Some(ticker::Quote {
             bid,
