@@ -1,43 +1,54 @@
 use crate::models::Aggregator;
+use crate::publisher::{spawn_publisher, PublisherHandle};
 use crate::ws;
 use common::models::ticker;
-use common::{Exchange, SpreadOpportunity};
-use rust_decimal::Decimal;
+use common::{Exchange, RedisClient, SpreadOpportunity};
+use rust_decimal::{Decimal, dec};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use tracing::info;
 
 impl Aggregator {
     /// Создаёт Aggregator и запускает WS-потоки
-    pub fn new() -> Self {
+    pub fn new(publisher: PublisherHandle) -> Self {
         let quotes = Arc::new(RwLock::new(HashMap::new()));
 
-        // Запуск потоков
+        // Запуск потоков с publisher
         let quotes_clone = Arc::clone(&quotes);
-        tokio::spawn(ws::run_binance(quotes_clone));
-        println!("Binance started!");
+        let publisher_clone = publisher.clone();
+        tokio::spawn(ws::run_binance(quotes_clone, publisher_clone));
+        info!("Binance started!");
 
         // let quotes_clone = Arc::clone(&quotes);
-        // tokio::spawn(ws::run_backpack(quotes_clone));
-        // println!("Backpack started!");
+        // let publisher_clone = publisher.clone();
+        // tokio::spawn(ws::run_backpack(quotes_clone, publisher_clone));
+        // info!("Backpack started!");
 
         let quotes_clone = Arc::clone(&quotes);
-        tokio::spawn(ws::run_hibachi(quotes_clone));
-        println!("Hibachi started!");
-        //
-        // let quotes_clone = Arc::clone(&quotes);
-        // tokio::spawn(ws::run_aster(quotes_clone));
-        // println!("Aster started!");
-        //
-        // let quotes_clone = Arc::clone(&quotes);
-        // tokio::spawn(ws::run_bybit(quotes_clone));
-        // println!("Bybit started!");
+        let publisher_clone = publisher.clone();
+        tokio::spawn(ws::run_hibachi(quotes_clone, publisher_clone));
+        info!("Hibachi started!");
 
         // let quotes_clone = Arc::clone(&quotes);
-        // tokio::spawn(ws::run_blofin(quotes_clone));
-        //
+        // let publisher_clone = publisher.clone();
+        // tokio::spawn(ws::run_aster(quotes_clone, publisher_clone));
+        // info!("Aster started!");
+
         // let quotes_clone = Arc::clone(&quotes);
-        // tokio::spawn(ws::run_okx(quotes_clone));
+        // let publisher_clone = publisher.clone();
+        // tokio::spawn(ws::run_bybit(quotes_clone, publisher_clone));
+        // info!("Bybit started!");
+
+        // let quotes_clone = Arc::clone(&quotes);
+        // let publisher_clone = publisher.clone();
+        // tokio::spawn(ws::run_blofin(quotes_clone, publisher_clone));
+        // info!("Blofin started!");
+
+        // let quotes_clone = Arc::clone(&quotes);
+        // let publisher_clone = publisher.clone();
+        // tokio::spawn(ws::run_okx(quotes_clone, publisher_clone));
+        // info!("OKX started!");
 
         Self { quotes }
     }
@@ -45,6 +56,17 @@ impl Aggregator {
     /// Возвращает snapshot текущих котировок
     pub async fn snapshot(&self) -> HashMap<String, HashMap<Exchange, ticker::Quote>> {
         self.quotes.read().await.clone()
+    }
+
+    pub async fn current_spread_percent(&self, symbol: String) -> Option<Decimal> {
+        let snapshot = self.quotes.read().await;
+        let quotes = snapshot.get(&symbol)?;
+
+        let (_, min_quote) = quotes.iter().min_by_key(|(_, q)| q.ask)?;
+
+        let (_, max_quote) = quotes.iter().max_by_key(|(_, q)| q.bid)?;
+
+        Some((max_quote.bid - min_quote.ask) / min_quote.ask * dec!(100))
     }
 
     pub async fn calc_spread_opportunity(&self, symbol: String) -> Option<SpreadOpportunity> {
@@ -56,17 +78,18 @@ impl Aggregator {
         }
 
         // Найти минимальную и максимальную цену
-        let (min_exchange, min_quote) =
-            quotes.iter().min_by_key(|(_, q)| q.ask)?;
+        let (min_exchange, min_quote) = quotes.iter().min_by_key(|(_, q)| q.ask)?;
 
-        let (max_exchange, max_quote) =
-            quotes.iter().max_by_key(|(_, q)| q.bid)?;
+        let (max_exchange, max_quote) = quotes.iter().max_by_key(|(_, q)| q.bid)?;
+        //
+        // let age_diff = max_quote.timestamp.abs_diff(min_quote.timestamp);
+        //
+        // // ms
+        // if age_diff > 100 {
+        //     return None;
+        // }
 
-        let age_diff =
-            max_quote.timestamp.abs_diff(min_quote.timestamp);
-
-        // ms
-        if age_diff > 100 {
+        if (max_quote.timestamp as i64 - min_quote.timestamp as i64).abs() > 50 {
             return None;
         }
 
@@ -81,16 +104,38 @@ impl Aggregator {
         let spread_percent =
             (max_quote.bid - min_quote.ask) / min_quote.ask * Decimal::from(100u32);
 
-        let threshold = Decimal::new(1, 1); // 0.1%
+        let buy_spread = (min_quote.ask - min_quote.bid) / min_quote.mid * dec!(100);
+
+        let sell_spread = (max_quote.ask - max_quote.bid) / max_quote.mid * dec!(100);
+
+        let max_book_spread = buy_spread.max(sell_spread);
+
+        // if buy_spread > dec!(0.08) || sell_spread > dec!(0.08) {
+        //     return None; // слишком широкий стакан
+        // }
+        //
+        // // Внутренние спреды не должны съедать больше 10% от арбитражного спреда
+        // if (buy_spread + sell_spread) > spread_percent * dec!(0.1) {
+        //     return None;
+        // }
+
+        let threshold = dec!(0.15); // 0.15%
+        let current_ts = std::time::SystemTime::now();
+        let size = min_quote.ask_size.min(max_quote.bid_size);
 
         if spread_percent > threshold {
             Some(SpreadOpportunity {
                 symbol,
                 long_exchange: *min_exchange,
-                long_exchange_price: min_quote.ask.round_dp(1),
+                long_exchange_price: min_quote.ask,
                 short_exchange: *max_exchange,
-                short_exchange_price: max_quote.bid.round_dp(1),
+                short_exchange_price: max_quote.bid,
                 spread_percent: spread_percent.round_dp(3),
+                size,
+                timestamp: current_ts
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs(),
             })
         } else {
             None

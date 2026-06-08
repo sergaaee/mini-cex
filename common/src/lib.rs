@@ -32,19 +32,23 @@ pub struct SpreadOpportunity {
     pub short_exchange: Exchange,
     pub short_exchange_price: Decimal,
     pub spread_percent: Decimal,
+    pub size: Decimal,
+    pub timestamp: u64,
 }
 
 impl Display for SpreadOpportunity {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Symbol: {}\nLong on: {} = {} \nShort on: {} = {} \nSpread: {}%",
+            "Symbol: {}\nLong on: {} = {} \nShort on: {} = {} \nSpread = {}%\nSize = {}\nTimestamp: {}",
             self.symbol,
             self.long_exchange,
             self.long_exchange_price,
             self.short_exchange,
             self.short_exchange_price,
-            self.spread_percent
+            self.spread_percent,
+            self.size,
+            self.timestamp,
         )
     }
 }

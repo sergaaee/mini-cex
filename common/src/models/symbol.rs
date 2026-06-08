@@ -9,14 +9,13 @@ use strum_macros::{AsRefStr, EnumIter};
 #[strum(serialize_all = "UPPERCASE")]
 pub enum Symbol {
     BTC,
-    // ETH,
-    // SOL,
-    // XRP,
-    // BNB,
-    // HYPE,
-    // SUI,
-    // XPL,
-    // SUI,
+    ETH,
+    SOL,
+    XRP,
+    BNB,
+    HYPE,
+    SUI,
+    //XPL,
     // ASTER,
     // JUP,
     // PUMP,
@@ -541,7 +540,6 @@ pub enum Symbol {
     #[serde(other)]
     Unknown,
 }
-
 
 impl Symbol {
     pub fn validate(&self) -> Result<(), SymbolError> {

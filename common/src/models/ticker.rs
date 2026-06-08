@@ -14,7 +14,9 @@ pub struct Ticker {
 pub struct Quote {
     pub mid: Decimal,
     pub bid: Decimal,
+    pub bid_size: Decimal,
     pub ask: Decimal,
+    pub ask_size: Decimal,
     pub timestamp: u64, // ms
 }
 

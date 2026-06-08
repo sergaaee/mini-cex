@@ -1,0 +1,18 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: 'aggregator'
+    static_configs:
+      - targets: ['aggregator:9090']
+    scrape_interval: 1s  # Высокая частота для цен
+
+  - job_name: 'spread-calculator'
+    static_configs:
+      - targets: ['spread-calculator:9092']
+    scrape_interval: 1s  # Высокая частота для спредов

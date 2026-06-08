@@ -1,33 +1,89 @@
 version: "3.9"
 
 services:
-  redis-aggregator:
-    image: redis
-    container_name: redis-aggregator
+  redis:
+    image: redis:7-alpine
+    container_name: redis
     restart: unless-stopped
+    ports:
+      - "6379:6379"
     healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 2s
       retries: 10
-
+    volumes:
+      - redis-data:/data
 
   aggregator:
     build:
       context: .
       dockerfile: aggregator/Dockerfile
     container_name: aggregator
+    restart: unless-stopped
     depends_on:
-      redis-aggregator:
+      redis:
         condition: service_healthy
+    environment:
+      - REDIS_URL=redis://redis:6379/
+      - METRICS_PORT=9090
+      - RUST_LOG=aggregator=info
+    ports:
+      - "9090:9090"  # Prometheus metrics
 
-
-  server:
+  spread-calculator:
     build:
       context: .
-      dockerfile: server/Dockerfile
-    container_name: server
+      dockerfile: spread-calculator/Dockerfile
+    container_name: spread-calculator
+    restart: unless-stopped
     depends_on:
-      redis-aggregator:
+      redis:
         condition: service_healthy
+      aggregator:
+        condition: service_started
+    environment:
+      - REDIS_URL=redis://redis:6379/
+      - METRICS_PORT=9092
+      - SYMBOLS=BTC,ETH,SOL,XRP,BNB,HYPE,SUI
+      - RUST_LOG=spread_calculator=info
+    ports:
+      - "9092:9092"  # Prometheus metrics
+
+  prometheus:
+    image: prom/prometheus:v2.53.4
+    container_name: prometheus
+    restart: unless-stopped
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    depends_on:
+      - aggregator
+
+  grafana:
+    image: grafana/grafana:11.5.3
+    container_name: grafana
+    restart: unless-stopped
     ports:
       - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+
+volumes:
+  redis-data:
+  prometheus-data:
+  grafana-data:

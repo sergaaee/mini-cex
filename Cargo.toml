@@ -1,5 +1,6 @@
 [workspace]
-members = ["aggregator", "common", "server"]
+members = ["aggregator", "common", "spread-calculator"]
+resolver = "2"
 
 [profile.release]
 debug = true

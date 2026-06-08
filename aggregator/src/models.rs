@@ -7,16 +7,30 @@ use tokio::sync::RwLock;
 
 #[derive(Deserialize, Debug)]
 pub struct BinanceTicker {
-    pub E: u64,
-    pub b: String,
-    pub a: String,
+    #[serde(rename = "E")]
+    pub timestamp: u64,
+    #[serde(rename = "b")]
+    pub best_bid: String,
+    #[serde(rename = "B")]
+    pub best_bid_size: String,
+    #[serde(rename = "a")]
+    pub best_ask: String,
+    #[serde(rename = "A")]
+    pub best_ask_size: String,
 }
 
 #[derive(Deserialize, Debug)]
 pub struct AsterTicker {
-    pub E: u64,
-    pub b: String,
-    pub a: String,
+    #[serde(rename = "E")]
+    pub timestamp: u64,
+    #[serde(rename = "b")]
+    pub best_bid: String,
+    #[serde(rename = "B")]
+    pub best_bid_size: String,
+    #[serde(rename = "a")]
+    pub best_ask: String,
+    #[serde(rename = "A")]
+    pub best_ask_size: String,
 }
 
 #[derive(Deserialize, Debug)]
@@ -26,8 +40,14 @@ pub struct HibachiResponse {
 
 #[derive(Deserialize, Debug)]
 pub struct HibachiTicker {
-    pub bidPrice: String,
-    pub askPrice: String,
+    #[serde(rename = "bidPrice")]
+    pub best_bid: String,
+    #[serde(rename = "bidSize")]
+    pub best_bid_size: String,
+    #[serde(rename = "askPrice")]
+    pub best_ask: String,
+    #[serde(rename = "askSize")]
+    pub best_ask_size: String,
 }
 
 #[derive(Deserialize, Debug)]
@@ -38,8 +58,14 @@ pub struct BybitResponse {
 
 #[derive(Deserialize, Debug)]
 pub struct BybitTicker {
-    pub bid1Price: String,
-    pub ask1Price: String,
+    #[serde(rename = "bid1Price")]
+    pub best_bid: String,
+    #[serde(rename = "bid1Size")]
+    pub best_bid_size: String,
+    #[serde(rename = "ask1Price")]
+    pub best_ask: String,
+    #[serde(rename = "ask1Size")]
+    pub best_ask_size: String,
 }
 
 #[derive(Deserialize, Debug)]
@@ -49,8 +75,14 @@ pub struct BloFinResponse {
 
 #[derive(Deserialize, Debug)]
 pub struct BloFinTicker {
-    pub bidPrice: String,
-    pub askPrice: String,
+    #[serde(rename = "bidPrice")]
+    pub best_bid: String,
+    #[serde(rename = "bidSize")]
+    pub best_bid_size: String,
+    #[serde(rename = "askPrice")]
+    pub best_ask: String,
+    #[serde(rename = "askSize")]
+    pub best_ask_size: String,
     pub ts: u64,
 }
 
@@ -61,8 +93,15 @@ pub struct OKXResponse {
 
 #[derive(Deserialize, Debug)]
 pub struct OKXTicker {
-    pub bidPx: String,
-    pub askPx: String,
+    #[serde(rename = "bidPx")]
+    pub best_bid: String,
+    #[serde(rename = "bidSz")]
+    pub best_bid_size: String,
+    #[serde(rename = "askPx")]
+    pub best_ask: String,
+    #[serde(rename = "askSz")]
+    pub best_ask_size: String,
+
     pub ts: u64,
 }
 
@@ -73,9 +112,16 @@ pub struct BackpackResponse {
 
 #[derive(Deserialize, Debug)]
 pub struct BackpackTicker {
-    pub E: u64,
-    pub b: String,
-    pub a: String,
+    #[serde(rename = "E")]
+    pub timestamp: u64,
+    #[serde(rename = "b")]
+    pub best_bid: String,
+    #[serde(rename = "B")]
+    pub best_bid_size: String,
+    #[serde(rename = "a")]
+    pub best_ask: String,
+    #[serde(rename = "A")]
+    pub best_ask_size: String,
 }
 
 pub type Quotes = Arc<RwLock<HashMap<String, HashMap<Exchange, ticker::Quote>>>>;

@@ -40,14 +40,7 @@ struct HibachiPosition {
 
 #[async_trait]
 pub trait PositionManagement {
-    async fn open_position(
-        &self,
-        symbol: &str,
-        qty: Decimal,
-        side: Side,
-        enter_price: Option<Decimal>,
-        close_price: Option<Decimal>,
-    ) -> Result<(), String>;
+    async fn open_position(&self, symbol: &str, qty: Decimal, side: Side) -> Result<(), String>;
     async fn close_position(&self, symbol: &str) -> Result<(), String>;
     async fn get_position(&self, symbol: &str) -> Result<Option<String>, String>;
 }
@@ -57,14 +50,7 @@ pub struct BinanceClient;
 
 #[async_trait]
 impl PositionManagement for BinanceClient {
-    async fn open_position(
-        &self,
-        symbol: &str,
-        qty: Decimal,
-        side: Side,
-        enter_price: Option<Decimal>,
-        close_price: Option<Decimal>,
-    ) -> Result<(), String> {
+    async fn open_position(&self, symbol: &str, qty: Decimal, side: Side) -> Result<(), String> {
         println!("Binance: opening {}, quantity: {} {}", side, qty, symbol);
         dotenv().ok();
 
@@ -179,14 +165,7 @@ pub struct BybitClient;
 
 #[async_trait]
 impl PositionManagement for BybitClient {
-    async fn open_position(
-        &self,
-        symbol: &str,
-        qty: Decimal,
-        side: Side,
-        enter_price: Option<Decimal>,
-        close_price: Option<Decimal>,
-    ) -> Result<(), String> {
+    async fn open_position(&self, symbol: &str, qty: Decimal, side: Side) -> Result<(), String> {
         println!("Bybit: opening {}, quantity: {} {}", side, qty, symbol);
         Ok(())
     }
@@ -291,14 +270,7 @@ fn sign_payload(payload: &[u8], private_key_hex: &str) -> Result<String, secp256
 
 #[async_trait]
 impl PositionManagement for HibachiClient {
-    async fn open_position(
-        &self,
-        symbol: &str,
-        qty: Decimal,
-        side: Side,
-        enter_price: Option<Decimal>,
-        close_price: Option<Decimal>,
-    ) -> Result<(), String> {
+    async fn open_position(&self, symbol: &str, qty: Decimal, side: Side) -> Result<(), String> {
         println!("Hibachi: opening {}, quantity: {} {}", side, qty, symbol);
         dotenv().ok();
 
@@ -369,47 +341,6 @@ impl PositionManagement for HibachiClient {
 
         println!("hibachi open response = {}", text);
 
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(|e| e.to_string())?
-            .as_millis() as u64;
-
-        let payload = build_order_payload(
-            symbol,
-            nonce,
-            contract_id,
-            qty,
-            payload_side_close,
-            Decimal::from_str_exact("0.0005").unwrap(),
-            close_price,
-        );
-
-        let signature = sign_payload(&payload, private_key.as_str()).unwrap();
-
-        let body = json!({
-            "symbol": format!("{}/USDT-P", symbol),
-            "accountId": 29680,
-            "side": body_side_close,
-            "orderType": "LIMIT",
-            "nonce": nonce,
-            "price": close_price.unwrap().to_string(),
-            "quantity": qty.to_string(),
-            "maxFeesPercent": "0.00050000",
-            "signature": signature
-        });
-
-        let response = client
-            .post(URL)
-            .header("Authorization", api_key)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-
-        let text = response.text().await.map_err(|e| e.to_string())?;
-
-        println!("hibachi limit response = {}", text);
-
         Ok(())
     }
     async fn close_position(&self, symbol: &str) -> Result<(), String> {
@@ -446,14 +377,7 @@ pub struct BackpackClient;
 
 #[async_trait]
 impl PositionManagement for BackpackClient {
-    async fn open_position(
-        &self,
-        symbol: &str,
-        qty: Decimal,
-        side: Side,
-        enter_price: Option<Decimal>,
-        close_price: Option<Decimal>,
-    ) -> Result<(), String> {
+    async fn open_position(&self, symbol: &str, qty: Decimal, side: Side) -> Result<(), String> {
         println!("Backpack: opening {}, quantity: {} {}", side, qty, symbol);
         Ok(())
     }
@@ -488,14 +412,7 @@ pub struct AsterClient;
 
 #[async_trait]
 impl PositionManagement for AsterClient {
-    async fn open_position(
-        &self,
-        symbol: &str,
-        qty: Decimal,
-        side: Side,
-        enter_price: Option<Decimal>,
-        close_price: Option<Decimal>,
-    ) -> Result<(), String> {
+    async fn open_position(&self, symbol: &str, qty: Decimal, side: Side) -> Result<(), String> {
         println!("Aster: opening {}, quantity: {} {}", side, qty, symbol);
         Ok(())
     }
