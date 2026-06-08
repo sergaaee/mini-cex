@@ -107,7 +107,7 @@ pub async fn start_ws(
 /// Пример функции для генерации URL Binance
 pub fn binance_url(sym: &String) -> String {
     format!(
-        "wss://stream.binance.com:9443/ws/{}usdt@ticker",
+        "wss://fstream.binance.com/ws/{}usdt@bookTicker",
         sym.to_lowercase()
     )
 }
