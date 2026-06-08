@@ -119,7 +119,7 @@ impl Aggregator {
         //     return None;
         // }
 
-        let threshold = dec!(0.15); // 0.15%
+        let threshold = dec!(0.1); // 0.15%
         let current_ts = std::time::SystemTime::now();
         let size = min_quote.ask_size.min(max_quote.bid_size);
 

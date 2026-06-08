@@ -1,9 +1,10 @@
 use common::models::order::Side;
 use common::models::position::{AsterClient, BinanceClient, BackpackClient, BybitClient, HibachiClient, PositionManagement};
-use common::{Exchange, SpreadOpportunity};
+use common::{Exchange, SpreadOpportunity, TradeSignal};
 use rust_decimal::Decimal;
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
 use crate::metrics::{SPREADS_RECEIVED, TRADES_EXECUTED, TRADES_SKIPPED};
@@ -14,6 +15,7 @@ pub struct DecisionEngine {
     cooldown: Duration,
     pub dry_run: bool,
     last_trade: HashMap<String, Instant>,
+    trade_tx: mpsc::Sender<TradeSignal>,
 }
 
 impl DecisionEngine {
@@ -22,6 +24,7 @@ impl DecisionEngine {
         trade_size_usd: Decimal,
         cooldown_secs: u64,
         dry_run: bool,
+        trade_tx: mpsc::Sender<TradeSignal>,
     ) -> Self {
         Self {
             min_spread_pct,
@@ -29,6 +32,7 @@ impl DecisionEngine {
             cooldown: Duration::from_secs(cooldown_secs),
             dry_run,
             last_trade: HashMap::new(),
+            trade_tx,
         }
     }
 
@@ -70,6 +74,10 @@ impl DecisionEngine {
 
         let qty = self.trade_size_usd / opp.long_exchange_price;
         let dry_run = self.dry_run;
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
 
         info!(
             symbol = %opp.symbol,
@@ -90,6 +98,23 @@ impl DecisionEngine {
                 &opp.short_exchange.to_string(),
             ])
             .inc();
+
+        let signal = TradeSignal {
+            symbol: opp.symbol.clone(),
+            long_exchange: opp.long_exchange,
+            long_price: opp.long_exchange_price,
+            short_exchange: opp.short_exchange,
+            short_price: opp.short_exchange_price,
+            spread_percent: opp.spread_percent,
+            qty,
+            dry_run,
+            timestamp: ts,
+        };
+
+        // Non-blocking publish — drop if channel is full rather than block the decision loop
+        if self.trade_tx.try_send(signal).is_err() {
+            warn!(symbol = %opp.symbol, "Trade signal channel full, notification may be dropped");
+        }
 
         if dry_run {
             return;

@@ -36,6 +36,19 @@ pub struct SpreadOpportunity {
     pub timestamp: u64,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct TradeSignal {
+    pub symbol: String,
+    pub long_exchange: Exchange,
+    pub long_price: Decimal,
+    pub short_exchange: Exchange,
+    pub short_price: Decimal,
+    pub spread_percent: Decimal,
+    pub qty: Decimal,
+    pub dry_run: bool,
+    pub timestamp: u64,
+}
+
 impl Display for SpreadOpportunity {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(

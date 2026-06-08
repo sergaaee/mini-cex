@@ -318,7 +318,7 @@ impl PositionManagement for HibachiClient {
 
         let body = json!({
             "symbol": format!("{}/USDT-P", symbol),
-            "accountId": 29680,
+            "accountId": 14257,
             "side": body_side,
             "orderType": "MARKET",
             "nonce": nonce,

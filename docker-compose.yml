@@ -45,6 +45,7 @@ services:
       - REDIS_URL=redis://redis:6379/
       - METRICS_PORT=9092
       - SYMBOLS=BTC,ETH,SOL,XRP,BNB,HYPE,SUI
+      - PUBLISH_MIN_SPREAD_PCT=0.075
       - RUST_LOG=spread_calculator=info
     ports:
       - "9092:9092"  # Prometheus metrics
@@ -60,16 +61,27 @@ services:
         condition: service_healthy
       spread-calculator:
         condition: service_started
-    environment:
-      - REDIS_URL=redis://redis:6379/
-      - METRICS_PORT=9093
-      - MIN_SPREAD_PCT=0.1
-      - TRADE_SIZE_USD=100
-      - COOLDOWN_SECS=30
-      - DRY_RUN=true
-      - RUST_LOG=execution_engine=info
+    env_file:
+      - .env
     ports:
       - "9093:9093"  # Prometheus metrics
+
+  telegram-notifier:
+    build:
+      context: .
+      dockerfile: telegram-notifier/Dockerfile
+    container_name: telegram-notifier
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      execution-engine:
+        condition: service_started
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://redis:6379/
+      - RUST_LOG=telegram_notifier=info
 
   prometheus:
     image: prom/prometheus:v2.53.4

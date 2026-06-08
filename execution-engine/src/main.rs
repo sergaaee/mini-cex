@@ -1,10 +1,10 @@
 use anyhow::Result;
 use axum::{routing::get, Router};
-use common::SpreadOpportunity;
+use common::{RedisClient, SpreadOpportunity, TradeSignal};
 use prometheus::{Encoder, TextEncoder};
 use rust_decimal::Decimal;
 use tokio::sync::mpsc;
-use tracing::info;
+use tracing::{error, info, warn};
 
 mod consumer;
 mod decision;
@@ -26,6 +26,40 @@ async fn start_metrics_server(port: u16) {
     axum::serve(listener, app).await.unwrap();
 }
 
+async fn trade_publisher_worker(redis_url: String, mut rx: mpsc::Receiver<TradeSignal>) {
+    let redis_client = RedisClient::from_url(&redis_url);
+
+    let mut conn = match redis_client.get_connection().await {
+        Ok(c) => c,
+        Err(e) => {
+            error!("Trade publisher: failed to connect to Redis: {}", e);
+            return;
+        }
+    };
+
+    info!("Trade publisher started");
+
+    while let Some(signal) = rx.recv().await {
+        match redis_client.publish_trade_signal(&mut conn, &signal).await {
+            Ok(_) => {
+                info!(
+                    symbol = %signal.symbol,
+                    spread_pct = %signal.spread_percent,
+                    dry_run = signal.dry_run,
+                    "Published trade signal"
+                );
+            }
+            Err(e) => {
+                warn!(error = %e, "Failed to publish trade signal, reconnecting...");
+                match redis_client.get_connection().await {
+                    Ok(new_conn) => conn = new_conn,
+                    Err(e) => error!("Trade publisher: reconnect failed: {}", e),
+                }
+            }
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -45,25 +79,21 @@ async fn main() -> Result<()> {
         .parse()
         .unwrap_or(9093);
 
-    // Minimum spread (%) required to trigger a trade signal
     let min_spread_pct: Decimal = std::env::var("MIN_SPREAD_PCT")
         .unwrap_or_else(|_| "0.15".into())
         .parse()
-        .unwrap_or(Decimal::new(1, 1));
+        .unwrap_or(Decimal::new(15, 2));
 
-    // Notional trade size in USD per leg
     let trade_size_usd: Decimal = std::env::var("TRADE_SIZE_USD")
         .unwrap_or_else(|_| "100".into())
         .parse()
         .unwrap_or(Decimal::from(100));
 
-    // Per-symbol cooldown seconds after a trade to prevent over-trading
     let cooldown_secs: u64 = std::env::var("COOLDOWN_SECS")
         .unwrap_or_else(|_| "30".into())
         .parse()
         .unwrap_or(30);
 
-    // DRY_RUN=false to enable live trading
     let dry_run = std::env::var("DRY_RUN")
         .map(|v| v.to_lowercase() != "false")
         .unwrap_or(true);
@@ -78,19 +108,22 @@ async fn main() -> Result<()> {
         "Starting execution engine"
     );
 
-    let (tx, mut rx) = mpsc::channel::<SpreadOpportunity>(256);
+    let (spread_tx, mut spread_rx) = mpsc::channel::<SpreadOpportunity>(256);
+    let (trade_tx, trade_rx) = mpsc::channel::<TradeSignal>(64);
 
     tokio::spawn(start_metrics_server(metrics_port));
-    tokio::spawn(consumer::consume_spreads(redis_url, tx));
+    tokio::spawn(consumer::consume_spreads(redis_url.clone(), spread_tx));
+    tokio::spawn(trade_publisher_worker(redis_url, trade_rx));
 
     let mut engine = decision::DecisionEngine::new(
         min_spread_pct,
         trade_size_usd,
         cooldown_secs,
         dry_run,
+        trade_tx,
     );
 
-    while let Some(opp) = rx.recv().await {
+    while let Some(opp) = spread_rx.recv().await {
         engine.evaluate(opp);
     }
 

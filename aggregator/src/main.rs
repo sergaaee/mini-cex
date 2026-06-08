@@ -8,7 +8,6 @@ mod ws;
 use crate::metrics::start_metrics_server;
 use crate::models::Aggregator;
 use crate::publisher::spawn_publisher;
-use crate::utils::{get_client, send_raw_message};
 use common::Exchange;
 use common::models::order::Side;
 use common::models::symbol::Symbol;

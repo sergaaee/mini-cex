@@ -1,6 +1,6 @@
 use crate::errors::price::PriceError;
 use crate::models::ticker::Quote;
-use crate::{Exchange, RedisClient, SpreadOpportunity};
+use crate::{Exchange, RedisClient, SpreadOpportunity, TradeSignal};
 use redis::AsyncCommands;
 use redis::streams::StreamMaxlen;
 
@@ -71,6 +71,33 @@ impl RedisClient {
         redis::cmd("XADD")
             .arg(&stream_key)
             .arg(StreamMaxlen::Approx(10000))
+            .arg("*")
+            .arg(items)
+            .query_async(conn)
+            .await
+    }
+
+    /// Publishes a trade signal to the `trades` Redis Stream.
+    pub async fn publish_trade_signal(
+        &self,
+        conn: &mut redis::aio::MultiplexedConnection,
+        signal: &TradeSignal,
+    ) -> redis::RedisResult<String> {
+        let items: &[(&str, String)] = &[
+            ("symbol", signal.symbol.clone()),
+            ("long_exchange", signal.long_exchange.to_string()),
+            ("long_price", signal.long_price.to_string()),
+            ("short_exchange", signal.short_exchange.to_string()),
+            ("short_price", signal.short_price.to_string()),
+            ("spread_percent", signal.spread_percent.to_string()),
+            ("qty", signal.qty.to_string()),
+            ("dry_run", signal.dry_run.to_string()),
+            ("timestamp", signal.timestamp.to_string()),
+        ];
+
+        redis::cmd("XADD")
+            .arg("trades")
+            .arg(StreamMaxlen::Approx(500))
             .arg("*")
             .arg(items)
             .query_async(conn)

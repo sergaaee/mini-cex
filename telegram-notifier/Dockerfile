@@ -24,7 +24,7 @@ COPY telegram-notifier/src ./telegram-notifier/src
 
 RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
 
-RUN cargo build --package execution-engine --release
+RUN cargo build --package telegram-notifier --release
 
 FROM debian:bookworm-slim
 
@@ -32,6 +32,6 @@ WORKDIR /app
 
 RUN apt-get update && apt-get install -y libssl3 ca-certificates && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /usr/src/app/target/release/execution-engine .
+COPY --from=builder /usr/src/app/target/release/telegram-notifier .
 
-CMD ["./execution-engine"]
+CMD ["./telegram-notifier"]
