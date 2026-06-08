@@ -24,6 +24,7 @@ prometheus = "0.13"
 axum = "0.8"
 lazy_static = "1.4"
 log = "0.4.28"
+chrono = "0.4.42"
 
 [profile.release]
 debug = true

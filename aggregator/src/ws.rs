@@ -149,6 +149,15 @@ pub fn parse_binance(msg: &str) -> Option<ticker::Quote> {
         let mid = (bid + ask) / Decimal::TWO;
         let timestamp = data.timestamp; // ms from exchange
 
+        let now = chrono::Utc::now().timestamp_millis() as u64;
+
+        println!(
+            "exchange_ts={} local_ts={} diff={}",
+            data.timestamp,
+            now,
+            now.saturating_sub(data.timestamp)
+        );
+
         Some(ticker::Quote {
             bid,
             bid_size,
