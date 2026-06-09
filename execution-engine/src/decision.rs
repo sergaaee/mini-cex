@@ -50,7 +50,7 @@ impl DecisionEngine {
             .map(|d| d.as_millis() as u64)
             .unwrap_or(0);
         let opp_age_ms = now_ms.saturating_sub(opp.timestamp);
-        if opp_age_ms > 100 {
+        if opp_age_ms > 200 {
             debug!(
                 symbol = %opp.symbol,
                 age_ms = opp_age_ms,
