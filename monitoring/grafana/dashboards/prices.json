@@ -1952,15 +1952,9 @@
       "pluginVersion": "11.5.3",
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum by (le, spread_pct_bucket) (increase(spread_session_duration_hist_ms_bucket{symbol=~\"$symbol\"}[$__range])))",
+          "expr": "histogram_quantile(0.10, sum by (le, spread_pct_bucket) (increase(spread_session_duration_hist_ms_bucket{symbol=~\"$symbol\"}[$__range])))",
           "legendFormat": "p50 {{spread_pct_bucket}}%",
           "refId": "A",
-          "instant": true
-        },
-        {
-          "expr": "histogram_quantile(0.90, sum by (le, spread_pct_bucket) (increase(spread_session_duration_hist_ms_bucket{symbol=~\"$symbol\"}[$__range])))",
-          "legendFormat": "p90 {{spread_pct_bucket}}%",
-          "refId": "B",
           "instant": true
         }
       ],

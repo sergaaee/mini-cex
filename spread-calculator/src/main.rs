@@ -410,8 +410,7 @@ async fn consume_streams(
 
     info!(streams = ?stream_keys, "Starting consumer group read loop");
 
-    // Large COUNT so a single read drains any burst backlog in one shot
-    let read_opts = StreamReadOptions::default().group(GROUP, CONSUMER).block(50).count(10_000);
+    let read_opts = StreamReadOptions::default().group(GROUP, CONSUMER).block(50).count(500);
     let new_ids: Vec<&str> = vec![">"; stream_keys.len()];
 
     // Dedup: only publish when prices change or >1s keepalive.

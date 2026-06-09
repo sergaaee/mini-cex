@@ -44,7 +44,7 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379/
       - METRICS_PORT=9092
-      - SYMBOLS=BTC,ETH,SOL
+      - SYMBOLS=BTC,ETH,SOL,HYPE,BNB,SUI,XRP
       - PUBLISH_MIN_SPREAD_PCT=0.075
       - MAX_QUOTE_AGE_MS=400
       - RUST_LOG=spread_calculator=info
