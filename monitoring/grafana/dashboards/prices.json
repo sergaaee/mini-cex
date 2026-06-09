@@ -1703,7 +1703,7 @@
       "pluginVersion": "11.5.3",
       "targets": [
         {
-          "expr": "spread_session_duration_ms{symbol=~\"$symbol\"}",
+          "expr": "spread_session_duration_ms{symbol=~\"$symbol\", long_exchange=~\"$long_exchange\", short_exchange=~\"$short_exchange\"}",
           "legendFormat": "{{symbol}} {{long_exchange}}\u2192{{short_exchange}}",
           "refId": "A"
         }
@@ -1770,7 +1770,7 @@
       "pluginVersion": "11.5.3",
       "targets": [
         {
-          "expr": "spread_session_last_duration_ms{symbol=~\"$symbol\"}",
+          "expr": "spread_session_last_duration_ms{symbol=~\"$symbol\", long_exchange=~\"$long_exchange\", short_exchange=~\"$short_exchange\"}",
           "legendFormat": "{{symbol}} {{long_exchange}}\u2192{{short_exchange}}",
           "refId": "A"
         }
@@ -1862,7 +1862,7 @@
       "pluginVersion": "11.5.3",
       "targets": [
         {
-          "expr": "increase(spread_sessions_started_total{symbol=~\"$symbol\"}[1m])",
+          "expr": "increase(spread_sessions_started_total{symbol=~\"$symbol\", long_exchange=~\"$long_exchange\", short_exchange=~\"$short_exchange\"}[1m])",
           "legendFormat": "{{symbol}} {{long_exchange}}\u2192{{short_exchange}}",
           "refId": "A"
         }
@@ -1952,9 +1952,21 @@
       "pluginVersion": "11.5.3",
       "targets": [
         {
-          "expr": "histogram_quantile(0.10, sum by (le, spread_pct_bucket) (increase(spread_session_duration_hist_ms_bucket{symbol=~\"$symbol\"}[$__range])))",
-          "legendFormat": "p50 {{spread_pct_bucket}}%",
+          "expr": "histogram_quantile(0.10, sum by (le, spread_pct_bucket) (increase(spread_session_duration_hist_ms_bucket{symbol=~\"$symbol\", long_exchange=~\"$long_exchange\", short_exchange=~\"$short_exchange\"}[$__range])))",
+          "legendFormat": "p10 {{spread_pct_bucket}}%",
           "refId": "A",
+          "instant": true
+        },
+        {
+          "expr": "histogram_quantile(0.50, sum by (le, spread_pct_bucket) (increase(spread_session_duration_hist_ms_bucket{symbol=~\"$symbol\", long_exchange=~\"$long_exchange\", short_exchange=~\"$short_exchange\"}[$__range])))",
+          "legendFormat": "p50 {{spread_pct_bucket}}%",
+          "refId": "B",
+          "instant": true
+        },
+        {
+          "expr": "histogram_quantile(0.90, sum by (le, spread_pct_bucket) (increase(spread_session_duration_hist_ms_bucket{symbol=~\"$symbol\", long_exchange=~\"$long_exchange\", short_exchange=~\"$short_exchange\"}[$__range])))",
+          "legendFormat": "p90 {{spread_pct_bucket}}%",
+          "refId": "C",
           "instant": true
         }
       ],
@@ -2014,6 +2026,52 @@
         "regex": "",
         "sort": 1,
         "type": "query"
+      },
+      {
+        "name": "long_exchange",
+        "label": "Long Exchange",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": {
+          "query": "label_values(spread_session_duration_ms, long_exchange)",
+          "refId": "A"
+        },
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "options": [],
+        "hide": 0,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": false,
+        "refresh": 2
+      },
+      {
+        "name": "short_exchange",
+        "label": "Short Exchange",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": {
+          "query": "label_values(spread_session_duration_ms, short_exchange)",
+          "refId": "A"
+        },
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "options": [],
+        "hide": 0,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": false,
+        "refresh": 2
       }
     ]
   },
