@@ -2,7 +2,7 @@ use anyhow::Result;
 use axum::{routing::get, Router};
 use common::{Exchange, SpreadOpportunity};
 use lazy_static::lazy_static;
-use prometheus::{Encoder, GaugeVec, IntCounter, Opts, Registry, TextEncoder};
+use prometheus::{Encoder, GaugeVec, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, Opts, Registry, TextEncoder};
 use redis::streams::{StreamReadOptions, StreamReadReply};
 use redis::AsyncCommands;
 use rust_decimal::Decimal;
@@ -61,6 +61,32 @@ lazy_static! {
         Opts::new("quote_received_timestamp_ms", "When our aggregator received the quote (ms)"),
         &["symbol", "exchange"]
     ).unwrap();
+
+    static ref SPREAD_SESSIONS_STARTED: IntCounterVec = IntCounterVec::new(
+        Opts::new("spread_sessions_started_total", "Number of times a spread crossed above the publish threshold"),
+        &["symbol", "long_exchange", "short_exchange"]
+    ).unwrap();
+
+    static ref SPREAD_SESSION_DURATION_MS: GaugeVec = GaugeVec::new(
+        Opts::new("spread_session_duration_ms", "How long the current spread session has been active (0 when inactive)"),
+        &["symbol", "long_exchange", "short_exchange"]
+    ).unwrap();
+
+    static ref SPREAD_SESSION_LAST_DURATION_MS: GaugeVec = GaugeVec::new(
+        Opts::new("spread_session_last_duration_ms", "Duration of the most recently completed spread session (ms)"),
+        &["symbol", "long_exchange", "short_exchange"]
+    ).unwrap();
+
+    // Histogram: observe session duration (ms) at the spread% bucket where the session started.
+    // spread_pct_bucket label = floor(spread_pct * 100) / 100, e.g. "0.08" for 0.083%.
+    // Allows histogram_quantile queries to show duration vs spread correlation.
+    static ref SPREAD_SESSION_DURATION_HIST: HistogramVec = HistogramVec::new(
+        HistogramOpts::new(
+            "spread_session_duration_hist_ms",
+            "Session duration distribution per starting spread percentage bucket"
+        ).buckets(vec![100.0, 250.0, 500.0, 1_000.0, 2_000.0, 5_000.0, 10_000.0, 30_000.0, 60_000.0, 120_000.0]),
+        &["symbol", "long_exchange", "short_exchange", "spread_pct_bucket"]
+    ).unwrap();
 }
 
 fn register_metrics() {
@@ -73,6 +99,10 @@ fn register_metrics() {
     REGISTRY.register(Box::new(SPREADS_PUBLISHED.clone())).ok();
     REGISTRY.register(Box::new(QUOTE_EVENT_TIMESTAMP_MS.clone())).ok();
     REGISTRY.register(Box::new(QUOTE_RECEIVED_TIMESTAMP_MS.clone())).ok();
+    REGISTRY.register(Box::new(SPREAD_SESSIONS_STARTED.clone())).ok();
+    REGISTRY.register(Box::new(SPREAD_SESSION_DURATION_MS.clone())).ok();
+    REGISTRY.register(Box::new(SPREAD_SESSION_LAST_DURATION_MS.clone())).ok();
+    REGISTRY.register(Box::new(SPREAD_SESSION_DURATION_HIST.clone())).ok();
 }
 
 #[derive(Debug, Clone)]
@@ -84,6 +114,14 @@ struct QuoteData {
 }
 
 type QuoteStore = Arc<RwLock<HashMap<String, HashMap<Exchange, QuoteData>>>>;
+
+struct SpreadSession {
+    started_at_ms: u64,
+    symbol: String,
+    long_exchange: String,
+    short_exchange: String,
+    starting_spread_pct: Decimal,
+}
 
 #[derive(Debug, Deserialize)]
 struct StreamEntry {
@@ -381,6 +419,9 @@ async fn consume_streams(
     // Value: (long_price, short_price, last_published_ms)
     let mut last_published: HashMap<String, (Decimal, Decimal, u64)> = HashMap::new();
 
+    // Session tracking: key = "{symbol}:{long_exchange}:{short_exchange}"
+    let mut sessions: HashMap<String, SpreadSession> = HashMap::new();
+
     loop {
         let result: redis::RedisResult<StreamReadReply> = conn
             .xread_options(&stream_keys, &new_ids, &read_opts)
@@ -443,6 +484,68 @@ async fn consume_streams(
                         }
                     };
                     let now = now_ms();
+
+                    // Session tracking: which directions are active this cycle for this symbol
+                    let mut active_keys: HashSet<String> = HashSet::new();
+                    for opp in &opportunities {
+                        let long_str = opp.long_exchange.to_string();
+                        let short_str = opp.short_exchange.to_string();
+                        let key = format!("{}:{}:{}", opp.symbol, long_str, short_str);
+                        active_keys.insert(key.clone());
+
+                        if !sessions.contains_key(&key) {
+                            sessions.insert(key.clone(), SpreadSession {
+                                started_at_ms: now,
+                                symbol: opp.symbol.clone(),
+                                long_exchange: long_str.clone(),
+                                short_exchange: short_str.clone(),
+                                starting_spread_pct: opp.spread_percent,
+                            });
+                            SPREAD_SESSIONS_STARTED
+                                .with_label_values(&[&opp.symbol, &long_str, &short_str])
+                                .inc();
+                            info!(
+                                symbol = %opp.symbol, long_exchange = %long_str,
+                                short_exchange = %short_str, spread_pct = %opp.spread_percent,
+                                "Spread session started"
+                            );
+                        }
+
+                        let duration_ms = now.saturating_sub(sessions[&key].started_at_ms);
+                        SPREAD_SESSION_DURATION_MS
+                            .with_label_values(&[&opp.symbol, &long_str, &short_str])
+                            .set(duration_ms as f64);
+                    }
+
+                    // End sessions for this symbol that dropped below threshold
+                    let ended: Vec<String> = sessions.iter()
+                        .filter(|(k, s)| s.symbol == symbol && !active_keys.contains(*k))
+                        .map(|(k, _)| k.clone())
+                        .collect();
+                    for key in ended {
+                        let s = sessions.remove(&key).unwrap();
+                        let duration_ms = now.saturating_sub(s.started_at_ms);
+                        // floor spread to nearest 0.01%, e.g. 0.0839 → "0.08"
+                        let pct_f64: f64 = s.starting_spread_pct.to_string().parse().unwrap_or(0.0);
+                        let pct_bucket = format!("{:.2}", (pct_f64 * 100.0).floor() / 100.0);
+                        SPREAD_SESSION_DURATION_MS
+                            .with_label_values(&[&s.symbol, &s.long_exchange, &s.short_exchange])
+                            .set(0.0);
+                        SPREAD_SESSION_LAST_DURATION_MS
+                            .with_label_values(&[&s.symbol, &s.long_exchange, &s.short_exchange])
+                            .set(duration_ms as f64);
+                        SPREAD_SESSION_DURATION_HIST
+                            .with_label_values(&[&s.symbol, &s.long_exchange, &s.short_exchange, &pct_bucket])
+                            .observe(duration_ms as f64);
+                        info!(
+                            symbol = %s.symbol, long_exchange = %s.long_exchange,
+                            short_exchange = %s.short_exchange, duration_ms,
+                            spread_pct_bucket = %pct_bucket,
+                            "Spread session ended"
+                        );
+                    }
+
+                    // Dedup publish: only when prices change or >200ms keepalive
                     for opp in opportunities {
                         let key = format!("{}:{}:{}", opp.symbol, opp.long_exchange, opp.short_exchange);
                         let should_publish = match last_published.get(&key) {

@@ -752,7 +752,7 @@
             "uid": "prometheus"
           },
           "expr": "spread_percent{symbol=~\"$symbol\"}",
-          "legendFormat": "{{symbol}}: buy {{exchange_low}} → sell {{exchange_high}}",
+          "legendFormat": "{{symbol}}: buy {{exchange_low}} \u2192 sell {{exchange_high}}",
           "refId": "A"
         }
       ],
@@ -847,7 +847,7 @@
             "uid": "prometheus"
           },
           "expr": "spread_absolute{symbol=~\"$symbol\"}",
-          "legendFormat": "{{symbol}}: {{exchange_low}} → {{exchange_high}}",
+          "legendFormat": "{{symbol}}: {{exchange_low}} \u2192 {{exchange_high}}",
           "refId": "A"
         }
       ],
@@ -1521,24 +1521,44 @@
             "drawStyle": "line",
             "fillOpacity": 5,
             "gradientMode": "none",
-            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
             "insertNulls": false,
             "lineInterpolation": "linear",
             "lineWidth": 1,
             "pointSize": 5,
-            "scaleDistribution": { "type": "linear" },
+            "scaleDistribution": {
+              "type": "linear"
+            },
             "showPoints": "never",
             "spanNulls": false,
-            "stacking": { "group": "A", "mode": "none" },
-            "thresholdsStyle": { "mode": "line" }
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "line"
+            }
           },
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 30 },
-              { "color": "red", "value": 50 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 30
+              },
+              {
+                "color": "red",
+                "value": 50
+              }
             ]
           },
           "unit": "ms",
@@ -1555,30 +1575,258 @@
       "id": 20,
       "options": {
         "legend": {
-          "calcs": ["last", "mean", "max"],
+          "calcs": [
+            "last",
+            "mean",
+            "max"
+          ],
           "displayMode": "table",
           "placement": "right",
           "showLegend": true
         },
-        "tooltip": { "hideZeros": false, "mode": "multi", "sort": "asc" }
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "asc"
+        }
       },
       "pluginVersion": "11.5.3",
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "expr": "time() * 1000 - quote_event_timestamp_ms{symbol=~\"$symbol\"}",
-          "legendFormat": "event age — {{symbol}} / {{exchange}}",
+          "legendFormat": "event age \u2014 {{symbol}} / {{exchange}}",
           "refId": "A"
         },
         {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "expr": "time() * 1000 - quote_received_timestamp_ms{symbol=~\"$symbol\"}",
-          "legendFormat": "received age — {{symbol}} / {{exchange}}",
+          "legendFormat": "received age \u2014 {{symbol}} / {{exchange}}",
           "refId": "B"
         }
       ],
       "title": "Orderbook Age: Exchange Event vs Received (ms)",
       "type": "timeseries"
+    },
+    {
+      "id": 21,
+      "title": "Spread Session Duration (ms)",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 60
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "expr": "spread_session_duration_ms{symbol=~\"$symbol\"}",
+          "legendFormat": "{{symbol}} {{long_exchange}}\u2192{{short_exchange}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 5000
+              },
+              {
+                "color": "red",
+                "value": 30000
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 22,
+      "title": "Last Completed Session Duration (ms)",
+      "type": "stat",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 60
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "expr": "spread_session_last_duration_ms{symbol=~\"$symbol\"}",
+          "legendFormat": "{{symbol}} {{long_exchange}}\u2192{{short_exchange}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 5000
+              },
+              {
+                "color": "red",
+                "value": 30000
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background"
+      }
+    },
+    {
+      "id": 23,
+      "title": "Spread Sessions Started (rate/min)",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 68
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "expr": "increase(spread_sessions_started_total{symbol=~\"$symbol\"}[1m])",
+          "legendFormat": "{{symbol}} {{long_exchange}}\u2192{{short_exchange}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 24,
+      "title": "Spread Size vs Session Duration (median ms per spread% bucket)",
+      "type": "barchart",
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 76
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le, spread_pct_bucket) (spread_session_duration_hist_ms_bucket{symbol=~\"$symbol\"}))",
+          "legendFormat": "p50 {{spread_pct_bucket}}%",
+          "refId": "A",
+          "instant": true
+        },
+        {
+          "expr": "histogram_quantile(0.90, sum by (le, spread_pct_bucket) (spread_session_duration_hist_ms_bucket{symbol=~\"$symbol\"}))",
+          "legendFormat": "p90 {{spread_pct_bucket}}%",
+          "refId": "B",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "xField": "spread_pct_bucket",
+        "groupWidth": 0.7,
+        "barWidth": 0.9,
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "orientation": "auto"
+      },
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {
+            "valueLabel": "spread_pct_bucket"
+          }
+        }
+      ]
     }
   ],
   "preload": false,
