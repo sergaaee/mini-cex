@@ -752,7 +752,7 @@
             "uid": "prometheus"
           },
           "expr": "spread_percent{symbol=~\"$symbol\"}",
-          "legendFormat": "{{symbol}}: buy {{exchange_low}} → sell {{exchange_high}}",
+          "legendFormat": "{{symbol}}: buy {{exchange_low}} \u2192 sell {{exchange_high}}",
           "refId": "A"
         }
       ],
@@ -847,7 +847,7 @@
             "uid": "prometheus"
           },
           "expr": "spread_absolute{symbol=~\"$symbol\"}",
-          "legendFormat": "{{symbol}}: {{exchange_low}} → {{exchange_high}}",
+          "legendFormat": "{{symbol}}: {{exchange_low}} \u2192 {{exchange_high}}",
           "refId": "A"
         }
       ],
@@ -1599,7 +1599,7 @@
             "uid": "prometheus"
           },
           "expr": "time() * 1000 - quote_event_timestamp_ms{symbol=~\"$symbol\"}",
-          "legendFormat": "event age — {{symbol}} / {{exchange}}",
+          "legendFormat": "event age \u2014 {{symbol}} / {{exchange}}",
           "refId": "A"
         },
         {
@@ -1608,7 +1608,7 @@
             "uid": "prometheus"
           },
           "expr": "time() * 1000 - quote_received_timestamp_ms{symbol=~\"$symbol\"}",
-          "legendFormat": "received age — {{symbol}} / {{exchange}}",
+          "legendFormat": "received age \u2014 {{symbol}} / {{exchange}}",
           "refId": "B"
         }
       ],
@@ -1704,7 +1704,7 @@
       "targets": [
         {
           "expr": "spread_session_duration_ms{symbol=~\"$symbol\"}",
-          "legendFormat": "{{symbol}} {{long_exchange}}→{{short_exchange}}",
+          "legendFormat": "{{symbol}} {{long_exchange}}\u2192{{short_exchange}}",
           "refId": "A"
         }
       ],
@@ -1771,7 +1771,7 @@
       "targets": [
         {
           "expr": "spread_session_last_duration_ms{symbol=~\"$symbol\"}",
-          "legendFormat": "{{symbol}} {{long_exchange}}→{{short_exchange}}",
+          "legendFormat": "{{symbol}} {{long_exchange}}\u2192{{short_exchange}}",
           "refId": "A"
         }
       ],
@@ -1863,7 +1863,7 @@
       "targets": [
         {
           "expr": "increase(spread_sessions_started_total{symbol=~\"$symbol\"}[1m])",
-          "legendFormat": "{{symbol}} {{long_exchange}}→{{short_exchange}}",
+          "legendFormat": "{{symbol}} {{long_exchange}}\u2192{{short_exchange}}",
           "refId": "A"
         }
       ],
@@ -1952,18 +1952,16 @@
       "pluginVersion": "11.5.3",
       "targets": [
         {
-          "editorMode": "code",
-          "expr": "histogram_quantile(0.10, sum by (le, spread_pct_bucket) (spread_session_duration_hist_ms_bucket{symbol=~\"$symbol\"}))",
-          "instant": true,
+          "expr": "histogram_quantile(0.50, sum by (le, spread_pct_bucket) (rate(spread_session_duration_hist_ms_bucket{symbol=~\"$symbol\"}[$lookback])))",
           "legendFormat": "p50 {{spread_pct_bucket}}%",
-          "refId": "A"
+          "refId": "A",
+          "instant": true
         },
         {
-          "editorMode": "code",
-          "expr": "histogram_quantile(0.50, sum by (le, spread_pct_bucket) (spread_session_duration_hist_ms_bucket{symbol=~\"$symbol\"}))",
-          "instant": true,
+          "expr": "histogram_quantile(0.90, sum by (le, spread_pct_bucket) (rate(spread_session_duration_hist_ms_bucket{symbol=~\"$symbol\"}[$lookback])))",
           "legendFormat": "p90 {{spread_pct_bucket}}%",
-          "refId": "B"
+          "refId": "B",
+          "instant": true
         }
       ],
       "title": "Spread Size vs Session Duration (median ms per spread% bucket)",
@@ -2011,6 +2009,42 @@
         "regex": "",
         "sort": 1,
         "type": "query"
+      },
+      {
+        "name": "lookback",
+        "label": "Lookback",
+        "type": "custom",
+        "query": "5m,15m,30m,1h,3h",
+        "current": {
+          "text": "15m",
+          "value": "15m"
+        },
+        "options": [
+          {
+            "text": "5m",
+            "value": "5m"
+          },
+          {
+            "text": "15m",
+            "value": "15m",
+            "selected": true
+          },
+          {
+            "text": "30m",
+            "value": "30m"
+          },
+          {
+            "text": "1h",
+            "value": "1h"
+          },
+          {
+            "text": "3h",
+            "value": "3h"
+          }
+        ],
+        "hide": 0,
+        "includeAll": false,
+        "multi": false
       }
     ]
   },
