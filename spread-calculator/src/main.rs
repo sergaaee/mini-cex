@@ -376,6 +376,11 @@ async fn consume_streams(
     let read_opts = StreamReadOptions::default().group(GROUP, CONSUMER).block(50).count(10_000);
     let new_ids: Vec<&str> = vec![">"; stream_keys.len()];
 
+    // Dedup: only publish when prices change or >1s keepalive.
+    // Key: "{symbol}:{long_exchange}:{short_exchange}"
+    // Value: (long_price, short_price, last_published_ms)
+    let mut last_published: HashMap<String, (Decimal, Decimal, u64)> = HashMap::new();
+
     loop {
         let result: redis::RedisResult<StreamReadReply> = conn
             .xread_options(&stream_keys, &new_ids, &read_opts)
@@ -437,9 +442,22 @@ async fn consume_streams(
                             vec![]
                         }
                     };
+                    let now = now_ms();
                     for opp in opportunities {
-                        if spread_tx.try_send(opp).is_err() {
-                            warn!("Spread publish channel full, dropping opportunity");
+                        let key = format!("{}:{}:{}", opp.symbol, opp.long_exchange, opp.short_exchange);
+                        let should_publish = match last_published.get(&key) {
+                            None => true,
+                            Some((last_long, last_short, last_ts)) => {
+                                opp.long_exchange_price != *last_long
+                                    || opp.short_exchange_price != *last_short
+                                    || now.saturating_sub(*last_ts) >= 100
+                            }
+                        };
+                        if should_publish {
+                            last_published.insert(key, (opp.long_exchange_price, opp.short_exchange_price, now));
+                            if spread_tx.try_send(opp).is_err() {
+                                warn!("Spread publish channel full, dropping opportunity");
+                            }
                         }
                     }
                 }
