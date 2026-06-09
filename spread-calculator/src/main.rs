@@ -84,7 +84,7 @@ lazy_static! {
         HistogramOpts::new(
             "spread_session_duration_hist_ms",
             "Session duration distribution per starting spread percentage bucket"
-        ).buckets(vec![100.0, 250.0, 500.0, 1_000.0, 2_000.0, 5_000.0, 10_000.0, 30_000.0, 60_000.0, 120_000.0]),
+        ).buckets(vec![25.0, 50.0, 75.0, 100.0, 150.0, 200.0, 300.0, 500.0, 1_000.0, 2_000.0, 5_000.0, 10_000.0, 30_000.0, 60_000.0, 120_000.0]),
         &["symbol", "long_exchange", "short_exchange", "spread_pct_bucket"]
     ).unwrap();
 }
@@ -553,7 +553,7 @@ async fn consume_streams(
                             Some((last_long, last_short, last_ts)) => {
                                 opp.long_exchange_price != *last_long
                                     || opp.short_exchange_price != *last_short
-                                    || now.saturating_sub(*last_ts) >= 200
+                                   // || now.saturating_sub(*last_ts) >= 200
                             }
                         };
                         if should_publish {
