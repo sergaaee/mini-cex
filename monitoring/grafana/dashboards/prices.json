@@ -1952,13 +1952,13 @@
       "pluginVersion": "11.5.3",
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum by (le, spread_pct_bucket) (rate(spread_session_duration_hist_ms_bucket{symbol=~\"$symbol\"}[$lookback])))",
+          "expr": "histogram_quantile(0.50, sum by (le, spread_pct_bucket) (increase(spread_session_duration_hist_ms_bucket{symbol=~\"$symbol\"}[$__range])))",
           "legendFormat": "p50 {{spread_pct_bucket}}%",
           "refId": "A",
           "instant": true
         },
         {
-          "expr": "histogram_quantile(0.90, sum by (le, spread_pct_bucket) (rate(spread_session_duration_hist_ms_bucket{symbol=~\"$symbol\"}[$lookback])))",
+          "expr": "histogram_quantile(0.90, sum by (le, spread_pct_bucket) (increase(spread_session_duration_hist_ms_bucket{symbol=~\"$symbol\"}[$__range])))",
           "legendFormat": "p90 {{spread_pct_bucket}}%",
           "refId": "B",
           "instant": true
@@ -1970,6 +1970,17 @@
           "id": "labelsToFields",
           "options": {
             "valueLabel": "spread_pct_bucket"
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": [
+              {
+                "desc": false,
+                "displayName": "spread_pct_bucket"
+              }
+            ]
           }
         }
       ],
@@ -2009,42 +2020,6 @@
         "regex": "",
         "sort": 1,
         "type": "query"
-      },
-      {
-        "name": "lookback",
-        "label": "Lookback",
-        "type": "custom",
-        "query": "5m,15m,30m,1h,3h",
-        "current": {
-          "text": "15m",
-          "value": "15m"
-        },
-        "options": [
-          {
-            "text": "5m",
-            "value": "5m"
-          },
-          {
-            "text": "15m",
-            "value": "15m",
-            "selected": true
-          },
-          {
-            "text": "30m",
-            "value": "30m"
-          },
-          {
-            "text": "1h",
-            "value": "1h"
-          },
-          {
-            "text": "3h",
-            "value": "3h"
-          }
-        ],
-        "hide": 0,
-        "includeAll": false,
-        "multi": false
       }
     ]
   },
