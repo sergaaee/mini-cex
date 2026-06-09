@@ -173,7 +173,9 @@ pub fn parse_aster(msg: &str) -> Option<ticker::Quote> {
         let ask = Decimal::from_str_exact(&data.best_ask).unwrap_or(Decimal::ZERO);
         let ask_size = Decimal::from_str_exact(&data.best_ask_size).unwrap_or(Decimal::ZERO);
         let mid = (bid + ask) / Decimal::TWO;
-        let timestamp = data.timestamp; // ms from exchange
+        // Normalise to ms — guard against exchanges that emit seconds
+        let raw_ts = data.timestamp;
+        let timestamp = if raw_ts < 1_000_000_000_000 { raw_ts * 1000 } else { raw_ts };
 
         Some(ticker::Quote {
             bid,
@@ -273,7 +275,8 @@ pub fn parse_blofin(msg: &str) -> Option<ticker::Quote> {
         let ask = Decimal::from_str_exact(&data.best_ask).unwrap_or(Decimal::ZERO);
         let ask_size = Decimal::from_str_exact(&data.best_ask_size).unwrap_or(Decimal::ZERO);
         let mid = (ask + bid) / Decimal::TWO;
-        let timestamp = data.ts;
+        let raw_ts = data.ts;
+        let timestamp = if raw_ts < 1_000_000_000_000 { raw_ts * 1000 } else { raw_ts };
 
         Some(ticker::Quote {
             mid,
@@ -297,7 +300,8 @@ pub fn parse_okx(msg: &str) -> Option<ticker::Quote> {
         let ask = Decimal::from_str_exact(&data.best_ask).unwrap_or(Decimal::ZERO);
         let ask_size = Decimal::from_str_exact(&data.best_ask_size).unwrap_or(Decimal::ZERO);
         let mid = (ask + bid) / Decimal::TWO;
-        let timestamp = data.ts;
+        let raw_ts = data.ts;
+        let timestamp = if raw_ts < 1_000_000_000_000 { raw_ts * 1000 } else { raw_ts };
 
         Some(ticker::Quote {
             mid,
