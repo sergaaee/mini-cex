@@ -450,7 +450,7 @@ async fn consume_streams(
                             Some((last_long, last_short, last_ts)) => {
                                 opp.long_exchange_price != *last_long
                                     || opp.short_exchange_price != *last_short
-                                    || now.saturating_sub(*last_ts) >= 100
+                                    || now.saturating_sub(*last_ts) >= 200
                             }
                         };
                         if should_publish {
