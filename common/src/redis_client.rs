@@ -17,15 +17,26 @@ impl RedisClient {
         Self { client }
     }
 
+    fn no_timeout_config() -> redis::AsyncConnectionConfig {
+        redis::AsyncConnectionConfig::new()
+            .set_connection_timeout(None)
+            .set_response_timeout(None)
+    }
+
     /// Получить multiplexed connection (можно переиспользовать)
     pub async fn get_connection(
         &self,
     ) -> redis::RedisResult<redis::aio::MultiplexedConnection> {
-        self.client.get_multiplexed_async_connection().await
+        self.client
+            .get_multiplexed_async_connection_with_config(&Self::no_timeout_config())
+            .await
     }
 
     pub async fn set_price(&self, symbol: &str, price: &str) -> redis::RedisResult<()> {
-        let mut conn = self.client.get_multiplexed_async_connection().await?;
+        let mut conn = self
+            .client
+            .get_multiplexed_async_connection_with_config(&Self::no_timeout_config())
+            .await?;
         let key = format!("price:{}", symbol);
         conn.set(key, price).await
     }
@@ -33,7 +44,7 @@ impl RedisClient {
     pub async fn get_price(&self, symbol: &str) -> Result<String, PriceError> {
         let mut conn = self
             .client
-            .get_multiplexed_async_connection()
+            .get_multiplexed_async_connection_with_config(&Self::no_timeout_config())
             .await
             .map_err(PriceError::RedisError)?;
 

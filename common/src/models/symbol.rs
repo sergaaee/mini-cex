@@ -550,7 +550,7 @@ impl Symbol {
     }
 
     pub fn get_all_symbols() -> Vec<Self> {
-        Symbol::iter().collect()
+        Symbol::iter().filter(|s| s != &Symbol::Unknown).collect()
     }
 
     pub fn supported_by(exchange: Exchange) -> Vec<Self> {

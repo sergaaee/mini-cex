@@ -63,12 +63,13 @@ pub fn spawn_publisher(redis_client: Arc<RedisClient>, buffer_size: usize) -> Pu
 async fn publisher_worker(redis_client: Arc<RedisClient>, mut rx: mpsc::Receiver<PriceEvent>) {
     info!("Publisher worker started");
 
-    // Получаем connection один раз и переиспользуем
-    let mut conn = match redis_client.get_connection().await {
-        Ok(c) => c,
-        Err(e) => {
-            error!("Failed to connect to Redis: {}", e);
-            return;
+    let mut conn = loop {
+        match redis_client.get_connection().await {
+            Ok(c) => break c,
+            Err(e) => {
+                error!("Failed to connect to Redis: {}, retrying in 1s", e);
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            }
         }
     };
 

@@ -329,7 +329,13 @@ async fn consume_streams(
     max_quote_age_ms: u64,
 ) -> Result<()> {
     let client = redis::Client::open(redis_url)?;
-    let mut conn = client.get_multiplexed_async_connection().await?;
+    let mut conn = client
+        .get_multiplexed_async_connection_with_config(
+            &redis::AsyncConnectionConfig::new()
+                .set_connection_timeout(None)
+                .set_response_timeout(None),
+        )
+        .await?;
 
     let stream_keys: Vec<String> = symbols.iter().map(|s| format!("prices:{}", s)).collect();
 
