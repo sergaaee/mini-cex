@@ -46,7 +46,7 @@ services:
       - METRICS_PORT=9092
       - SYMBOLS=BTC,ETH,SOL
       - PUBLISH_MIN_SPREAD_PCT=0.075
-      - MAX_QUOTE_AGE_MS=500
+      - MAX_QUOTE_AGE_MS=300
       - RUST_LOG=spread_calculator=info
     ports:
       - "9092:9092"  # Prometheus metrics

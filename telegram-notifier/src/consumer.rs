@@ -44,13 +44,35 @@ fn parse_trade_entry(fields: &[(String, redis::Value)]) -> Option<TradeSignal> {
     })
 }
 
+fn no_timeout_config() -> redis::AsyncConnectionConfig {
+    redis::AsyncConnectionConfig::new()
+        .set_connection_timeout(None)
+        .set_response_timeout(None)
+}
+
 pub async fn consume_trades(redis_url: String, tx: mpsc::Sender<TradeSignal>) -> Result<()> {
     let client = redis::Client::open(redis_url.as_str())?;
-    let mut conn = client.get_multiplexed_async_connection().await?;
+    let mut conn = client
+        .get_multiplexed_async_connection_with_config(&no_timeout_config())
+        .await?;
 
-    let mut last_id = "$".to_string();
+    // Resolve the current stream tail so we only process signals from this moment forward.
+    // Using "$" directly is re-evaluated on every retry and skips messages that arrive
+    // during error-sleep windows.
+    let mut last_id: String = redis::cmd("XREVRANGE")
+        .arg("trades")
+        .arg("+")
+        .arg("-")
+        .arg("COUNT")
+        .arg(1usize)
+        .query_async::<redis::streams::StreamRangeReply>(&mut conn)
+        .await
+        .ok()
+        .and_then(|r| r.ids.into_iter().next())
+        .map(|e| e.id)
+        .unwrap_or_else(|| "0-0".to_string());
 
-    tracing::info!("Consuming trades stream");
+    tracing::info!(cursor = %last_id, "Consuming trades stream");
 
     loop {
         let opts = StreamReadOptions::default().block(5000).count(20);
@@ -83,7 +105,7 @@ pub async fn consume_trades(redis_url: String, tx: mpsc::Sender<TradeSignal>) ->
             }
             Err(e) => {
                 warn!(error = %e, "Error reading trades stream, retrying...");
-                tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
             }
         }
     }

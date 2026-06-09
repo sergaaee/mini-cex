@@ -46,14 +46,34 @@ fn parse_spread_entry(fields: &[(String, redis::Value)]) -> Option<SpreadOpportu
 /// Reads `SpreadOpportunity` entries from the `spreads` Redis Stream and
 /// forwards them to the decision engine via a channel.
 /// Starts at `$` so only new entries (posted after startup) are processed.
+fn no_timeout_config() -> redis::AsyncConnectionConfig {
+    redis::AsyncConnectionConfig::new()
+        .set_connection_timeout(None)
+        .set_response_timeout(None)
+}
+
 pub async fn consume_spreads(redis_url: String, tx: mpsc::Sender<SpreadOpportunity>) -> Result<()> {
     let redis_url = redis_url.as_str();
     let client = redis::Client::open(redis_url)?;
-    let mut conn = client.get_multiplexed_async_connection().await?;
+    let mut conn = client
+        .get_multiplexed_async_connection_with_config(&no_timeout_config())
+        .await?;
 
-    let mut last_id = "$".to_string();
+    // Resolve the current stream tail so we only process spreads from this moment forward.
+    let mut last_id: String = redis::cmd("XREVRANGE")
+        .arg("spreads")
+        .arg("+")
+        .arg("-")
+        .arg("COUNT")
+        .arg(1usize)
+        .query_async::<redis::streams::StreamRangeReply>(&mut conn)
+        .await
+        .ok()
+        .and_then(|r| r.ids.into_iter().next())
+        .map(|e| e.id)
+        .unwrap_or_else(|| "0-0".to_string());
 
-    tracing::info!("Consuming spreads stream");
+    tracing::info!(cursor = %last_id, "Consuming spreads stream");
 
     loop {
         let opts = StreamReadOptions::default().block(1000).count(50);
@@ -87,7 +107,7 @@ pub async fn consume_spreads(redis_url: String, tx: mpsc::Sender<SpreadOpportuni
             }
             Err(e) => {
                 warn!(error = %e, "Error reading spreads stream, retrying...");
-                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
             }
         }
     }
