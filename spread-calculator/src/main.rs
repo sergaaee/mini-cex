@@ -170,14 +170,14 @@ fn calculate_spreads(
             let age2 = ts.saturating_sub(q2.timestamp);
 
             if age1 > max_age_ms {
-                warn!(
+                debug!(
                     symbol, exchange = %ex1, age_ms = age1, max_ms = max_age_ms,
                     "Stale quote, skipping pair"
                 );
                 continue;
             }
             if age2 > max_age_ms {
-                warn!(
+                debug!(
                     symbol, exchange = %ex2, age_ms = age2, max_ms = max_age_ms,
                     "Stale quote, skipping pair"
                 );
@@ -486,9 +486,9 @@ async fn main() -> Result<()> {
 
     // Max age of an exchange quote before it is considered stale (ms)
     let max_quote_age_ms: u64 = std::env::var("MAX_QUOTE_AGE_MS")
-        .unwrap_or_else(|_| "400".into())
+        .unwrap_or_else(|_| "500".into())
         .parse()
-        .unwrap_or(400);
+        .unwrap_or(500);
 
     info!(
         redis_url = %redis_url,

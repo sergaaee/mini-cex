@@ -8,8 +8,7 @@ use common::models::ticker;
 use futures_util::{SinkExt, StreamExt};
 use rust_decimal::Decimal;
 use std::sync::Arc;
-use std::thread::sleep;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tracing::{debug, error, info};
@@ -26,7 +25,7 @@ pub async fn start_ws(
     let mut handles = vec![];
 
     for sym in symbols {
-        sleep(Duration::from_millis(500));
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
         info!("Starting WS for {} on {}", sym, exchange.to_string());
         let quotes_clone = Arc::clone(&quotes);
         let publisher_clone = publisher.clone();
