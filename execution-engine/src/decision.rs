@@ -9,6 +9,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
+use crate::metrics::ORDER_RTT_MS;
+
 use crate::metrics::{SPREADS_RECEIVED, TRADES_EXECUTED, TRADES_SKIPPED};
 
 pub struct DecisionEngine {
@@ -176,12 +178,20 @@ async fn open_on_exchange(
     qty: Decimal,
     side: Side,
 ) -> Result<(), String> {
-    match exchange {
+    let t = Instant::now();
+    let result = match exchange {
         Exchange::Binance => BinanceClient.open_position(&symbol, qty, side).await,
         Exchange::Bybit => BybitClient.open_position(&symbol, qty, side).await,
         Exchange::Hibachi => HibachiClient.open_position(&symbol, qty, side).await,
         Exchange::Backpack => BackpackClient.open_position(&symbol, qty, side).await,
         Exchange::Aster => AsterClient.open_position(&symbol, qty, side).await,
         other => Err(format!("No execution client for exchange: {}", other)),
-    }
+    };
+    let rtt_ms = t.elapsed().as_millis() as f64;
+    let label = if result.is_ok() { "ok" } else { "error" };
+    ORDER_RTT_MS
+        .with_label_values(&[&exchange.to_string(), label])
+        .observe(rtt_ms);
+    info!(exchange = %exchange, rtt_ms, result = label, "Order RTT");
+    result
 }
