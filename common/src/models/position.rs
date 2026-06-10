@@ -16,7 +16,31 @@ use serde_json::json;
 use sha2::Digest;
 use sha2::Sha256;
 use std::str::FromStr;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::OnceLock;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+static HTTP_CLIENT: OnceLock<Client> = OnceLock::new();
+
+fn http_client() -> &'static Client {
+    HTTP_CLIENT.get_or_init(|| {
+        Client::builder()
+            .pool_idle_timeout(Duration::from_secs(90))
+            .tcp_keepalive(Duration::from_secs(30))
+            .build()
+            .expect("Failed to build HTTP client")
+    })
+}
+
+/// Fires a cheap unauthenticated GET to each exchange's public ping endpoint so
+/// that TLS connections are established and pooled before the first real order.
+pub async fn warmup_connections() {
+    let client = http_client();
+    let _ = tokio::join!(
+        client.get("https://fapi.binance.com/fapi/v1/ping").send(),
+        client.get("https://fapi.asterdex.com/fapi/v1/ping").send(),
+        client.get("https://api.hibachi.xyz/").send(),
+    );
+}
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -85,7 +109,7 @@ impl PositionManagement for BinanceClient {
             query, signature
         );
 
-        let client = Client::new();
+        let client = http_client();
         let resp = client
             .post(&url)
             .header("X-MBX-APIKEY", api_key)
@@ -131,7 +155,7 @@ impl PositionManagement for BinanceClient {
             query, signature
         );
 
-        let client = Client::new();
+        let client = http_client();
         let resp = client
             .get(&url)
             .header("X-MBX-APIKEY", api_key)
@@ -327,7 +351,7 @@ impl PositionManagement for HibachiClient {
             "signature": signature
         });
 
-        let client = Client::new();
+        let client = http_client();
 
         let response = client
             .post(URL)
@@ -358,7 +382,7 @@ impl PositionManagement for HibachiClient {
             account_id
         );
 
-        let client = Client::new();
+        let client = http_client();
         let resp = client
             .get(&url)
             .send()
@@ -447,7 +471,7 @@ impl PositionManagement for AsterClient {
             query, signature
         );
 
-        let client = Client::new();
+        let client = http_client();
         let resp = client
             .post(&url)
             .header("X-MBX-APIKEY", api_key)
@@ -491,7 +515,7 @@ impl PositionManagement for AsterClient {
             query, signature
         );
 
-        let client = Client::new();
+        let client = http_client();
         let resp = client
             .get(&url)
             .header("X-MBX-APIKEY", api_key)

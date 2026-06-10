@@ -306,7 +306,7 @@
             "uid": "prometheus"
           },
           "expr": "spread_percent{symbol=~\"$symbol\"}",
-          "legendFormat": "{{symbol}}: buy {{exchange_low}} → sell {{exchange_high}}",
+          "legendFormat": "{{symbol}}: buy {{exchange_low}} \u2192 sell {{exchange_high}}",
           "refId": "A"
         }
       ],
@@ -401,7 +401,7 @@
             "uid": "prometheus"
           },
           "expr": "spread_absolute{symbol=~\"$symbol\"}",
-          "legendFormat": "{{symbol}}: {{exchange_low}} → {{exchange_high}}",
+          "legendFormat": "{{symbol}}: {{exchange_low}} \u2192 {{exchange_high}}",
           "refId": "A"
         }
       ],
@@ -1151,12 +1151,12 @@
       "targets": [
         {
           "expr": "quote_event_age_ms{symbol=~\"$symbol\"}",
-          "legendFormat": "exchange ts age — {{exchange}}",
+          "legendFormat": "exchange ts age \u2014 {{exchange}}",
           "refId": "A"
         },
         {
           "expr": "quote_received_age_ms{symbol=~\"$symbol\"}",
-          "legendFormat": "pipeline age — {{exchange}}",
+          "legendFormat": "pipeline age \u2014 {{exchange}}",
           "refId": "B"
         }
       ],
@@ -1252,7 +1252,7 @@
       "targets": [
         {
           "expr": "spread_session_duration_ms{symbol=~\"$symbol\", long_exchange=~\"$long_exchange\", short_exchange=~\"$short_exchange\"}",
-          "legendFormat": "{{symbol}} {{long_exchange}}→{{short_exchange}}",
+          "legendFormat": "{{symbol}} {{long_exchange}}\u2192{{short_exchange}}",
           "refId": "A"
         }
       ],
@@ -1319,7 +1319,7 @@
       "targets": [
         {
           "expr": "spread_session_last_duration_ms{symbol=~\"$symbol\", long_exchange=~\"$long_exchange\", short_exchange=~\"$short_exchange\"}",
-          "legendFormat": "{{symbol}} {{long_exchange}}→{{short_exchange}}",
+          "legendFormat": "{{symbol}} {{long_exchange}}\u2192{{short_exchange}}",
           "refId": "A"
         }
       ],
@@ -1411,7 +1411,7 @@
       "targets": [
         {
           "expr": "increase(spread_sessions_started_total{symbol=~\"$symbol\", long_exchange=~\"$long_exchange\", short_exchange=~\"$short_exchange\"}[1m])",
-          "legendFormat": "{{symbol}} {{long_exchange}}→{{short_exchange}}",
+          "legendFormat": "{{symbol}} {{long_exchange}}\u2192{{short_exchange}}",
           "refId": "A"
         }
       ],
@@ -1528,6 +1528,48 @@
         }
       ],
       "type": "barchart"
+    },
+    {
+      "id": 25,
+      "title": "Order RTT per Exchange (ms)",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 74
+      },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, rate(execution_order_rtt_ms_bucket[5m]))",
+          "legendFormat": "p50 {{exchange}}",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.90, rate(execution_order_rtt_ms_bucket[5m]))",
+          "legendFormat": "p90 {{exchange}}",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, rate(execution_order_rtt_ms_bucket[5m]))",
+          "legendFormat": "p99 {{exchange}}",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": {
+            "lineWidth": 2
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
     }
   ],
   "preload": false,

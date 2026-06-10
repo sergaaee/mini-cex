@@ -1,5 +1,6 @@
 use anyhow::Result;
 use axum::{routing::get, Router};
+use common::models::position::warmup_connections;
 use common::{RedisClient, SpreadOpportunity, TradeSignal};
 use prometheus::{Encoder, TextEncoder};
 use rust_decimal::Decimal;
@@ -107,6 +108,9 @@ async fn main() -> Result<()> {
         dry_run,
         "Starting execution engine"
     );
+
+    warmup_connections().await;
+    info!("Exchange HTTP connections warmed up");
 
     let (spread_tx, mut spread_rx) = mpsc::channel::<SpreadOpportunity>(256);
     let (trade_tx, trade_rx) = mpsc::channel::<TradeSignal>(64);
