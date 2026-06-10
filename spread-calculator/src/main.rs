@@ -404,7 +404,7 @@ async fn consume_streams(
 
     // Large COUNT drains burst backlog in one shot; per-exchange dedup below keeps only the
     // freshest quote per exchange regardless of batch size.
-    let read_opts = StreamReadOptions::default().group(GROUP, CONSUMER).block(50).count(10_000);
+    let read_opts = StreamReadOptions::default().group(GROUP, CONSUMER).block(10).count(10_000);
     let new_ids: Vec<&str> = vec![">"; stream_keys.len()];
 
     // Dedup: only publish when prices change or >1s keepalive.

@@ -76,7 +76,7 @@ pub async fn consume_spreads(redis_url: String, tx: mpsc::Sender<SpreadOpportuni
     tracing::info!(cursor = %last_id, "Consuming spreads stream");
 
     loop {
-        let opts = StreamReadOptions::default().block(1000).count(50);
+        let opts = StreamReadOptions::default().block(10).count(50);
 
         let result: redis::RedisResult<StreamReadReply> =
             conn.xread_options(&["spreads"], &[last_id.as_str()], &opts).await;
