@@ -1,9 +1,6 @@
 use crate::models::order::Side;
-use crate::models::symbol::Symbol;
 use async_trait::async_trait;
-use bpx_api_client::types::markets::Asset;
 use bpx_api_client::{BpxClient, BACKPACK_API_BASE_URL};
-use dotenvy::dotenv;
 use hex;
 use hmac::{Hmac, KeyInit, Mac};
 use reqwest::Client;
@@ -19,6 +16,8 @@ use std::str::FromStr;
 use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+// ── Static HTTP client ────────────────────────────────────────────────────────
+
 static HTTP_CLIENT: OnceLock<Client> = OnceLock::new();
 
 fn http_client() -> &'static Client {
@@ -31,9 +30,85 @@ fn http_client() -> &'static Client {
     })
 }
 
+// ── Static secp256k1 context ─────────────────────────────────────────────────
+
+static SECP256K1: OnceLock<Secp256k1<secp256k1::All>> = OnceLock::new();
+
+fn secp() -> &'static Secp256k1<secp256k1::All> {
+    SECP256K1.get_or_init(Secp256k1::new)
+}
+
+// ── Cached credentials ───────────────────────────────────────────────────────
+
+static BINANCE_API_KEY: OnceLock<String> = OnceLock::new();
+static BINANCE_SECRET: OnceLock<String> = OnceLock::new();
+
+fn binance_api_key() -> &'static str {
+    BINANCE_API_KEY.get_or_init(|| {
+        std::env::var("BINANCE_API_KEY").expect("Missing BINANCE_API_KEY")
+    })
+}
+fn binance_secret() -> &'static str {
+    BINANCE_SECRET.get_or_init(|| {
+        std::env::var("BINANCE_SECRET").expect("Missing BINANCE_SECRET")
+    })
+}
+
+static ASTER_API_KEY: OnceLock<String> = OnceLock::new();
+static ASTER_SECRET: OnceLock<String> = OnceLock::new();
+
+fn aster_api_key() -> &'static str {
+    ASTER_API_KEY.get_or_init(|| {
+        std::env::var("ASTER_API_KEY").expect("Missing ASTER_API_KEY")
+    })
+}
+fn aster_secret() -> &'static str {
+    ASTER_SECRET.get_or_init(|| {
+        std::env::var("ASTER_SECRET").expect("Missing ASTER_SECRET")
+    })
+}
+
+static HIBACHI_CLIENT_ID: OnceLock<String> = OnceLock::new();
+static HIBACHI_PRIVATE_KEY: OnceLock<String> = OnceLock::new();
+static HIBACHI_API_KEY: OnceLock<String> = OnceLock::new();
+
+fn hibachi_client_id() -> &'static str {
+    HIBACHI_CLIENT_ID.get_or_init(|| {
+        std::env::var("HIBACHI_CLIENT_ID").expect("Missing HIBACHI_CLIENT_ID")
+    })
+}
+fn hibachi_private_key() -> &'static str {
+    HIBACHI_PRIVATE_KEY.get_or_init(|| {
+        std::env::var("HIBACHI_PRIVATE_KEY").expect("Missing HIBACHI_PRIVATE_KEY")
+    })
+}
+fn hibachi_api_key() -> &'static str {
+    HIBACHI_API_KEY.get_or_init(|| {
+        std::env::var("HIBACHI_API_KEY").expect("Missing HIBACHI_API_KEY")
+    })
+}
+
+// ── Warmup ───────────────────────────────────────────────────────────────────
+
 /// Fires a cheap unauthenticated GET to each exchange's public ping endpoint so
 /// that TLS connections are established and pooled before the first real order.
+/// Also loads and caches all credentials eagerly so the first order has zero
+/// env-var / dotenv overhead.
 pub async fn warmup_connections() {
+    dotenvy::dotenv().ok();
+
+    // Prime all credential caches now — panics early if a key is missing.
+    let _ = binance_api_key();
+    let _ = binance_secret();
+    let _ = aster_api_key();
+    let _ = aster_secret();
+    let _ = hibachi_client_id();
+    let _ = hibachi_private_key();
+    let _ = hibachi_api_key();
+
+    // Prime secp256k1 context.
+    let _ = secp();
+
     let client = http_client();
     let _ = tokio::join!(
         client.get("https://fapi.binance.com/fapi/v1/ping").send(),
@@ -42,12 +117,14 @@ pub async fn warmup_connections() {
     );
 }
 
+// ── Shared types ─────────────────────────────────────────────────────────────
+
 type HmacSha256 = Hmac<Sha256>;
 
 #[derive(Deserialize)]
 struct BinancePosition {
     symbol: String,
-    positionAmt: String, // Decimal
+    positionAmt: String,
 }
 
 #[derive(Deserialize, Debug)]
@@ -59,8 +136,10 @@ struct BinanceOrder {
 #[derive(Deserialize)]
 struct HibachiPosition {
     symbol: String,
-    positionAmt: String, // Decimal
+    positionAmt: String,
 }
+
+// ── Trait ────────────────────────────────────────────────────────────────────
 
 #[async_trait]
 pub trait PositionManagement {
@@ -69,6 +148,8 @@ pub trait PositionManagement {
     async fn get_position(&self, symbol: &str) -> Result<Option<String>, String>;
 }
 
+// ── Binance ──────────────────────────────────────────────────────────────────
+
 #[derive(Debug, Clone)]
 pub struct BinanceClient;
 
@@ -76,10 +157,9 @@ pub struct BinanceClient;
 impl PositionManagement for BinanceClient {
     async fn open_position(&self, symbol: &str, qty: Decimal, side: Side) -> Result<(), String> {
         println!("Binance: opening {}, quantity: {} {}", side, qty, symbol);
-        dotenv().ok();
 
-        let api_key = std::env::var("BINANCE_API_KEY").map_err(|_| "Missing Binance API key")?;
-        let secret = std::env::var("BINANCE_SECRET").map_err(|_| "Missing Binance secret")?;
+        let api_key = binance_api_key();
+        let secret = binance_secret();
 
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -89,9 +169,7 @@ impl PositionManagement for BinanceClient {
         let (order_side, position_side) = match side {
             Side::Buy => ("BUY", "LONG"),
             Side::Sell => ("SELL", "SHORT"),
-            _ => {
-                panic!("Unknown side!")
-            }
+            _ => panic!("Unknown side!"),
         };
 
         let query = format!(
@@ -99,7 +177,6 @@ impl PositionManagement for BinanceClient {
             symbol, order_side, qty, position_side, timestamp
         );
 
-        // HMAC подпись
         let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).map_err(|e| e.to_string())?;
         mac.update(query.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes());
@@ -109,19 +186,14 @@ impl PositionManagement for BinanceClient {
             query, signature
         );
 
-        let client = http_client();
-        let resp = client
+        let resp = http_client()
             .post(&url)
             .header("X-MBX-APIKEY", api_key)
             .send()
             .await
             .map_err(|e| e.to_string())?;
-        // .json::<BinanceOrder>()
-        // .await
-        // .unwrap();
 
         let text = resp.text().await.unwrap();
-
         println!("binance response = {:?}", text);
 
         Ok(())
@@ -133,10 +205,8 @@ impl PositionManagement for BinanceClient {
     }
 
     async fn get_position(&self, symbol: &str) -> Result<Option<String>, String> {
-        dotenv().ok();
-
-        let api_key = std::env::var("BINANCE_API_KEY").map_err(|_| "Missing Binance API key")?;
-        let secret = std::env::var("BINANCE_SECRET").map_err(|_| "Missing Binance secret")?;
+        let api_key = binance_api_key();
+        let secret = binance_secret();
 
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -145,7 +215,6 @@ impl PositionManagement for BinanceClient {
 
         let query = format!("timestamp={}", timestamp);
 
-        // HMAC подпись
         let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).map_err(|e| e.to_string())?;
         mac.update(query.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes());
@@ -155,8 +224,7 @@ impl PositionManagement for BinanceClient {
             query, signature
         );
 
-        let client = http_client();
-        let resp = client
+        let resp = http_client()
             .get(&url)
             .header("X-MBX-APIKEY", api_key)
             .send()
@@ -166,7 +234,6 @@ impl PositionManagement for BinanceClient {
             .await
             .map_err(|e| e.to_string())?;
 
-        // ищем позицию по символу
         for pos in resp {
             if pos.symbol.eq_ignore_ascii_case(symbol) {
                 let amt = Decimal::from_str(&pos.positionAmt).map_err(|e| e.to_string())?;
@@ -184,6 +251,8 @@ impl PositionManagement for BinanceClient {
     }
 }
 
+// ── Bybit ────────────────────────────────────────────────────────────────────
+
 #[derive(Debug, Clone)]
 pub struct BybitClient;
 
@@ -197,11 +266,12 @@ impl PositionManagement for BybitClient {
         println!("Bybit: closing position {}", symbol);
         Ok(())
     }
-    async fn get_position(&self, symbol: &str) -> Result<Option<String>, String> {
-        dotenv().ok();
+    async fn get_position(&self, _symbol: &str) -> Result<Option<String>, String> {
         Ok(None)
     }
 }
+
+// ── Hibachi ──────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
 pub struct HibachiClient;
@@ -215,11 +285,9 @@ fn u32_be(v: u32) -> [u8; 4] {
 }
 
 fn encode_price(price: Decimal, settlement_decimals: i64, underlying_decimals: i64) -> u64 {
-    let decimal_diff = settlement_decimals - underlying_decimals; // -4 для BTC/USDT-P
-
+    let decimal_diff = settlement_decimals - underlying_decimals;
     let scale = Decimal::TEN.powi(decimal_diff);
-    let multiplier = Decimal::from(1u64 << 32); // 2^32 = 4294967296
-
+    let multiplier = Decimal::from(1u64 << 32);
     (price * scale * multiplier).trunc().to_u64().unwrap_or(0)
 }
 
@@ -228,20 +296,22 @@ fn build_order_payload(
     nonce: u64,
     contract_id: u32,
     quantity: Decimal,
-    side: u32, // 0 = ASK, 1 = BID
+    side: u32,
     fee_rate: Decimal,
     price: Option<Decimal>,
 ) -> Vec<u8> {
-    // Сначала определяем decimals
     let (settlement_decimals, underlying_decimals) = match symbol {
         "BTC" => (6i64, 10i64),
         "ETH" => (6i64, 9i64),
         "SOL" => (6i64, 8i64),
+        "XRP" => (6i64, 6i64),
+        "BNB" => (6i64, 8i64),
+        "HYPE" => (6i64, 7i64),
+        "SUI" => (6i64, 6i64),
         _ => panic!("Unknown symbol!"),
     };
 
-    // Теперь правильно считаем quantity
-    let quantity_raw = (quantity * Decimal::from(10i64).powi(underlying_decimals as i64))
+    let quantity_raw = (quantity * Decimal::from(10i64).powi(underlying_decimals))
         .trunc()
         .to_u64()
         .unwrap_or(0);
@@ -252,7 +322,6 @@ fn build_order_payload(
         .unwrap_or(0);
 
     let mut payload = Vec::with_capacity(40);
-
     payload.extend_from_slice(&u64_be(nonce));
     payload.extend_from_slice(&u32_be(contract_id));
     payload.extend_from_slice(&u64_be(quantity_raw));
@@ -267,7 +336,6 @@ fn build_order_payload(
     }
 
     payload.extend_from_slice(&u64_be(max_fees));
-
     payload
 }
 
@@ -280,14 +348,13 @@ fn sign_payload(payload: &[u8], private_key_hex: &str) -> Result<String, secp256
 
     let msg = Message::from_digest_slice(&digest).map_err(|_| secp256k1::Error::InvalidMessage)?;
 
-    let secp = Secp256k1::new();
-    let sig: RecoverableSignature = secp.sign_ecdsa_recoverable(&msg, &secret_key);
+    let sig: RecoverableSignature = secp().sign_ecdsa_recoverable(&msg, &secret_key);
 
     let (recid, compact) = sig.serialize_compact();
 
     let mut out = Vec::with_capacity(65);
     out.extend_from_slice(&compact);
-    out.push(recid.to_i32() as u8); // recovery id в конце
+    out.push(recid.to_i32() as u8);
 
     Ok(hex::encode(out))
 }
@@ -296,36 +363,33 @@ fn sign_payload(payload: &[u8], private_key_hex: &str) -> Result<String, secp256
 impl PositionManagement for HibachiClient {
     async fn open_position(&self, symbol: &str, qty: Decimal, side: Side) -> Result<(), String> {
         println!("Hibachi: opening {}, quantity: {} {}", side, qty, symbol);
-        dotenv().ok();
 
         const URL: &str = "https://api.hibachi.xyz/trade/order";
 
-        let account_id =
-            std::env::var("HIBACHI_CLIENT_ID").map_err(|_| "Missing Hibachi client id")?;
-        let private_key =
-            std::env::var("HIBACHI_PRIVATE_KEY").map_err(|_| "Missing Hibachi private key")?;
-        let api_key = std::env::var("HIBACHI_API_KEY").map_err(|_| "Missing Hibachi api key")?;
+        let account_id = hibachi_client_id();
+        let private_key = hibachi_private_key();
+        let api_key = hibachi_api_key();
 
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|e| e.to_string())?
             .as_millis() as u64;
 
-        let (body_side, payload_side, body_side_close, payload_side_close) = match side {
-            Side::Buy => ("BID", 1, "ASK", 0),
-            Side::Sell => ("ASK", 0, "BID", 1),
-            _ => {
-                panic!("Unknown side!")
-            }
+        let (body_side, payload_side) = match side {
+            Side::Buy => ("BID", 1u32),
+            Side::Sell => ("ASK", 0u32),
+            _ => panic!("Unknown side!"),
         };
 
         let contract_id = match symbol {
             "BTC" => 2,
             "ETH" => 1,
             "SOL" => 3,
-            _ => {
-                panic!("Unknown symbol!")
-            }
+            "XRP" => 24,
+            "BNB" => 30,
+            "HYPE" => 49,
+            "SUI" => 23,
+            _ => panic!("Unknown symbol!"),
         };
 
         let payload = build_order_payload(
@@ -338,7 +402,7 @@ impl PositionManagement for HibachiClient {
             None,
         );
 
-        let signature = sign_payload(&payload, private_key.as_str()).unwrap();
+        let signature = sign_payload(&payload, private_key).unwrap();
 
         let body = json!({
             "symbol": format!("{}/USDT-P", symbol),
@@ -351,39 +415,30 @@ impl PositionManagement for HibachiClient {
             "signature": signature
         });
 
-        let client = http_client();
-
-        let response = client
+        let response = http_client()
             .post(URL)
-            .header("Authorization", api_key.clone())
+            .header("Authorization", api_key)
             .json(&body)
             .send()
             .await
             .map_err(|e| e.to_string())?;
 
         let text = response.text().await.map_err(|e| e.to_string())?;
-
         println!("hibachi open response = {}", text);
 
         Ok(())
     }
+
     async fn close_position(&self, symbol: &str) -> Result<(), String> {
         println!("Hibachi: closing position {}", symbol);
         Ok(())
     }
-    async fn get_position(&self, symbol: &str) -> Result<Option<String>, String> {
-        dotenv().ok();
 
-        let account_id =
-            std::env::var("HIBACHI_CLIENT_ID").map_err(|_| "Missing Hibachi client id")?;
+    async fn get_position(&self, _symbol: &str) -> Result<Option<String>, String> {
+        let account_id = hibachi_client_id();
+        let url = format!("https://api.hibachi.xyz/trade/orders?accountId={}", account_id);
 
-        let url = format!(
-            "https://api.hibachi.xyz/trade/orders?accountId={}",
-            account_id
-        );
-
-        let client = http_client();
-        let resp = client
+        let resp = http_client()
             .get(&url)
             .send()
             .await
@@ -395,6 +450,8 @@ impl PositionManagement for HibachiClient {
         Ok(None)
     }
 }
+
+// ── Backpack ─────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
 pub struct BackpackClient;
@@ -410,10 +467,7 @@ impl PositionManagement for BackpackClient {
         Ok(())
     }
     async fn get_position(&self, symbol: &str) -> Result<Option<String>, String> {
-        dotenv().ok();
-
         let base_url = BACKPACK_API_BASE_URL.to_string();
-        let api_key = std::env::var("API_KEY_BP").map_err(|_| "Missing Backpack API key")?;
         let secret = std::env::var("SECRET_KEY_BP").map_err(|_| "Missing Backpack secret")?;
         let headers = None;
 
@@ -431,6 +485,8 @@ impl PositionManagement for BackpackClient {
     }
 }
 
+// ── Aster ────────────────────────────────────────────────────────────────────
+
 #[derive(Debug, Clone)]
 pub struct AsterClient;
 
@@ -438,10 +494,9 @@ pub struct AsterClient;
 impl PositionManagement for AsterClient {
     async fn open_position(&self, symbol: &str, qty: Decimal, side: Side) -> Result<(), String> {
         println!("Aster: opening {}, quantity: {} {}", side, qty, symbol);
-        dotenv().ok();
 
-        let api_key = std::env::var("ASTER_API_KEY").map_err(|_| "Missing Aster API key")?;
-        let secret = std::env::var("ASTER_SECRET").map_err(|_| "Missing Aster secret")?;
+        let api_key = aster_api_key();
+        let secret = aster_secret();
 
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -451,9 +506,7 @@ impl PositionManagement for AsterClient {
         let (order_side, position_side) = match side {
             Side::Buy => ("BUY", "LONG"),
             Side::Sell => ("SELL", "SHORT"),
-            _ => {
-                panic!("Unknown side!")
-            }
+            _ => panic!("Unknown side!"),
         };
 
         let query = format!(
@@ -461,7 +514,6 @@ impl PositionManagement for AsterClient {
             symbol, order_side, qty, position_side, timestamp
         );
 
-        // HMAC подпись
         let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).map_err(|e| e.to_string())?;
         mac.update(query.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes());
@@ -471,32 +523,27 @@ impl PositionManagement for AsterClient {
             query, signature
         );
 
-        let client = http_client();
-        let resp = client
+        let resp = http_client()
             .post(&url)
             .header("X-MBX-APIKEY", api_key)
             .send()
             .await
             .map_err(|e| e.to_string())?;
-        // .json::<BinanceOrder>()
-        // .await
-        // .unwrap();
 
         let text = resp.text().await.unwrap();
-
-        println!("binance response = {:?}", text);
+        println!("aster response = {:?}", text);
 
         Ok(())
     }
+
     async fn close_position(&self, symbol: &str) -> Result<(), String> {
         println!("Aster: closing position {}", symbol);
         Ok(())
     }
-    async fn get_position(&self, symbol: &str) -> Result<Option<String>, String> {
-        dotenv().ok();
 
-        let api_key = std::env::var("ASTER_API_KEY").map_err(|_| "Missing Aster API key")?;
-        let secret = std::env::var("ASTER_SECRET").map_err(|_| "Missing Aster secret")?;
+    async fn get_position(&self, symbol: &str) -> Result<Option<String>, String> {
+        let api_key = aster_api_key();
+        let secret = aster_secret();
 
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -505,7 +552,6 @@ impl PositionManagement for AsterClient {
 
         let query = format!("timestamp={}", timestamp);
 
-        // HMAC подпись
         let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).map_err(|e| e.to_string())?;
         mac.update(query.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes());
@@ -515,8 +561,7 @@ impl PositionManagement for AsterClient {
             query, signature
         );
 
-        let client = http_client();
-        let resp = client
+        let resp = http_client()
             .get(&url)
             .header("X-MBX-APIKEY", api_key)
             .send()
@@ -526,7 +571,6 @@ impl PositionManagement for AsterClient {
             .await
             .map_err(|e| e.to_string())?;
 
-        // ищем позицию по символу
         for pos in resp {
             if pos.symbol.eq_ignore_ascii_case(symbol) {
                 let amt = Decimal::from_str(&pos.positionAmt).map_err(|e| e.to_string())?;

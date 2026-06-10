@@ -404,7 +404,7 @@ async fn consume_streams(
 
     // Large COUNT drains burst backlog in one shot; per-exchange dedup below keeps only the
     // freshest quote per exchange regardless of batch size.
-    let read_opts = StreamReadOptions::default().group(GROUP, CONSUMER).block(50).count(10_000);
+    let read_opts = StreamReadOptions::default().group(GROUP, CONSUMER).block(10).count(10_000);
     let new_ids: Vec<&str> = vec![">"; stream_keys.len()];
 
     // Dedup: only publish when prices change or >1s keepalive.
@@ -602,9 +602,9 @@ async fn main() -> Result<()> {
 
     // Max age of an exchange quote before it is considered stale (ms)
     let max_quote_age_ms: u64 = std::env::var("MAX_QUOTE_AGE_MS")
-        .unwrap_or_else(|_| "200".into())
+        .unwrap_or_else(|_| "50".into())
         .parse()
-        .unwrap_or(200);
+        .unwrap_or(50);
 
     info!(
         redis_url = %redis_url,
