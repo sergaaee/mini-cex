@@ -304,6 +304,10 @@ fn build_order_payload(
         "BTC" => (6i64, 10i64),
         "ETH" => (6i64, 9i64),
         "SOL" => (6i64, 8i64),
+        "XRP" => (6i64, 6i64),
+        "BNB" => (6i64, 8i64),
+        "HYPE" => (6i64, 7i64),
+        "SUI" => (6i64, 6i64),
         _ => panic!("Unknown symbol!"),
     };
 
@@ -381,6 +385,10 @@ impl PositionManagement for HibachiClient {
             "BTC" => 2,
             "ETH" => 1,
             "SOL" => 3,
+            "XRP" => 24,
+            "BNB" => 30,
+            "HYPE" => 49,
+            "SUI" => 23,
             _ => panic!("Unknown symbol!"),
         };
 

@@ -602,9 +602,9 @@ async fn main() -> Result<()> {
 
     // Max age of an exchange quote before it is considered stale (ms)
     let max_quote_age_ms: u64 = std::env::var("MAX_QUOTE_AGE_MS")
-        .unwrap_or_else(|_| "100".into())
+        .unwrap_or_else(|_| "50".into())
         .parse()
-        .unwrap_or(100);
+        .unwrap_or(50);
 
     info!(
         redis_url = %redis_url,
