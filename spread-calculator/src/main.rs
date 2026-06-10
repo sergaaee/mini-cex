@@ -227,14 +227,7 @@ fn calculate_spreads(
 
             let ex1_str = ex1.to_string();
             let ex2_str = ex2.to_string();
-
-            info!(
-                symbol,
-                exchange1 = %ex1_str, pipeline_age1_ms = ts.saturating_sub(q1.received_at), total_age1_ms = age1,
-                exchange2 = %ex2_str, pipeline_age2_ms = ts.saturating_sub(q2.received_at), total_age2_ms = age2,
-                "Quote ages at spread calculation"
-            );
-
+            
             // Buy on ex1 (ask), sell on ex2 (bid)
             if q2.bid > q1.ask {
                 let spread_abs = q2.bid - q1.ask;

@@ -9,12 +9,12 @@ use strum_macros::{AsRefStr, EnumIter};
 #[strum(serialize_all = "UPPERCASE")]
 pub enum Symbol {
     BTC,
-    // ETH,
-    // SOL,
-    // XRP,
-    // BNB,
-    // HYPE,
-    // SUI,
+    ETH,
+    SOL,
+    XRP,
+    BNB,
+    HYPE,
+    SUI,
     //XPL,
     // ASTER,
     // JUP,
