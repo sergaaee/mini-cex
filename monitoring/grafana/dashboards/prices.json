@@ -249,452 +249,6 @@
               "mode": "none"
             },
             "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "unit": "percent"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 8
-      },
-      "id": 3,
-      "options": {
-        "legend": {
-          "calcs": [
-            "last",
-            "max",
-            "min"
-          ],
-          "displayMode": "table",
-          "placement": "right",
-          "showLegend": true
-        },
-        "tooltip": {
-          "hideZeros": false,
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "pluginVersion": "11.5.3",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "aggregator_price_spread_percent{symbol=~\"$symbol\"}",
-          "legendFormat": "{{symbol}} spread %",
-          "refId": "A"
-        }
-      ],
-      "title": "Spread Between Exchanges (%)",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "barWidthFactor": 0.6,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 8
-      },
-      "id": 4,
-      "options": {
-        "legend": {
-          "calcs": [
-            "last"
-          ],
-          "displayMode": "table",
-          "placement": "right",
-          "showLegend": true
-        },
-        "tooltip": {
-          "hideZeros": false,
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "pluginVersion": "11.5.3",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "rate(aggregator_ws_messages_received_total[1m])",
-          "legendFormat": "{{exchange}} msg/s",
-          "refId": "A"
-        }
-      ],
-      "title": "WebSocket Messages Rate (per second)",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 0,
-        "y": 16
-      },
-      "id": 5,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "percentChangeColorMode": "standard",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showPercentChange": false,
-        "textMode": "auto",
-        "wideLayout": true
-      },
-      "pluginVersion": "11.5.3",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "aggregator_events_published_total",
-          "legendFormat": "Published",
-          "refId": "A"
-        }
-      ],
-      "title": "Events Published Total",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 1
-              }
-            ]
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 6,
-        "y": 16
-      },
-      "id": 6,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "percentChangeColorMode": "standard",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showPercentChange": false,
-        "textMode": "auto",
-        "wideLayout": true
-      },
-      "pluginVersion": "11.5.3",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "aggregator_events_dropped_total",
-          "legendFormat": "Dropped",
-          "refId": "A"
-        }
-      ],
-      "title": "Events Dropped Total",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 12,
-        "y": 16
-      },
-      "id": 7,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "percentChangeColorMode": "standard",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showPercentChange": false,
-        "textMode": "auto",
-        "wideLayout": true
-      },
-      "pluginVersion": "11.5.3",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "sum(aggregator_ws_messages_received_total)",
-          "legendFormat": "Total",
-          "refId": "A"
-        }
-      ],
-      "title": "WS Messages Total",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 18,
-        "y": 16
-      },
-      "id": 8,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "percentChangeColorMode": "standard",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showPercentChange": false,
-        "textMode": "auto",
-        "wideLayout": true
-      },
-      "pluginVersion": "11.5.3",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "count(aggregator_price_bid)",
-          "legendFormat": "Active Pairs",
-          "refId": "A"
-        }
-      ],
-      "title": "Active Symbol/Exchange Pairs",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "barWidthFactor": 0.6,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 2,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
               "mode": "line"
             }
           },
@@ -724,7 +278,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 20
+        "y": 8
       },
       "id": 9,
       "options": {
@@ -752,7 +306,7 @@
             "uid": "prometheus"
           },
           "expr": "spread_percent{symbol=~\"$symbol\"}",
-          "legendFormat": "{{symbol}}: buy {{exchange_low}} \u2192 sell {{exchange_high}}",
+          "legendFormat": "{{symbol}}: buy {{exchange_low}} → sell {{exchange_high}}",
           "refId": "A"
         }
       ],
@@ -820,7 +374,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 28
+        "y": 16
       },
       "id": 10,
       "options": {
@@ -847,7 +401,7 @@
             "uid": "prometheus"
           },
           "expr": "spread_absolute{symbol=~\"$symbol\"}",
-          "legendFormat": "{{symbol}}: {{exchange_low}} \u2192 {{exchange_high}}",
+          "legendFormat": "{{symbol}}: {{exchange_low}} → {{exchange_high}}",
           "refId": "A"
         }
       ],
@@ -882,7 +436,7 @@
         "h": 4,
         "w": 8,
         "x": 0,
-        "y": 36
+        "y": 24
       },
       "id": 11,
       "options": {
@@ -945,7 +499,7 @@
         "h": 4,
         "w": 8,
         "x": 8,
-        "y": 36
+        "y": 24
       },
       "id": 12,
       "options": {
@@ -1008,7 +562,7 @@
         "h": 4,
         "w": 8,
         "x": 16,
-        "y": 36
+        "y": 24
       },
       "id": 13,
       "options": {
@@ -1071,7 +625,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 40
+        "y": 28
       },
       "id": 14,
       "options": {
@@ -1134,7 +688,7 @@
         "h": 4,
         "w": 6,
         "x": 6,
-        "y": 40
+        "y": 28
       },
       "id": 15,
       "options": {
@@ -1201,7 +755,7 @@
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 40
+        "y": 28
       },
       "id": 16,
       "options": {
@@ -1268,7 +822,7 @@
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 40
+        "y": 28
       },
       "id": 17,
       "options": {
@@ -1364,7 +918,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 44
+        "y": 32
       },
       "id": 18,
       "options": {
@@ -1468,7 +1022,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 44
+        "y": 32
       },
       "id": 19,
       "options": {
@@ -1571,7 +1125,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 52
+        "y": 40
       },
       "id": 20,
       "options": {
@@ -1583,7 +1137,9 @@
           ],
           "displayMode": "table",
           "placement": "right",
-          "showLegend": true
+          "showLegend": true,
+          "sortBy": "Mean",
+          "sortDesc": false
         },
         "tooltip": {
           "hideZeros": false,
@@ -1595,12 +1151,12 @@
       "targets": [
         {
           "expr": "quote_event_age_ms{symbol=~\"$symbol\"}",
-          "legendFormat": "exchange ts age \u2014 {{exchange}}",
+          "legendFormat": "exchange ts age — {{exchange}}",
           "refId": "A"
         },
         {
           "expr": "quote_received_age_ms{symbol=~\"$symbol\"}",
-          "legendFormat": "pipeline age \u2014 {{exchange}}",
+          "legendFormat": "pipeline age — {{exchange}}",
           "refId": "B"
         }
       ],
@@ -1676,7 +1232,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 60
+        "y": 48
       },
       "id": 21,
       "options": {
@@ -1696,7 +1252,7 @@
       "targets": [
         {
           "expr": "spread_session_duration_ms{symbol=~\"$symbol\", long_exchange=~\"$long_exchange\", short_exchange=~\"$short_exchange\"}",
-          "legendFormat": "{{symbol}} {{long_exchange}}\u2192{{short_exchange}}",
+          "legendFormat": "{{symbol}} {{long_exchange}}→{{short_exchange}}",
           "refId": "A"
         }
       ],
@@ -1739,7 +1295,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 60
+        "y": 48
       },
       "id": 22,
       "options": {
@@ -1763,7 +1319,7 @@
       "targets": [
         {
           "expr": "spread_session_last_duration_ms{symbol=~\"$symbol\", long_exchange=~\"$long_exchange\", short_exchange=~\"$short_exchange\"}",
-          "legendFormat": "{{symbol}} {{long_exchange}}\u2192{{short_exchange}}",
+          "legendFormat": "{{symbol}} {{long_exchange}}→{{short_exchange}}",
           "refId": "A"
         }
       ],
@@ -1835,7 +1391,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 68
+        "y": 56
       },
       "id": 23,
       "options": {
@@ -1855,7 +1411,7 @@
       "targets": [
         {
           "expr": "increase(spread_sessions_started_total{symbol=~\"$symbol\", long_exchange=~\"$long_exchange\", short_exchange=~\"$short_exchange\"}[1m])",
-          "legendFormat": "{{symbol}} {{long_exchange}}\u2192{{short_exchange}}",
+          "legendFormat": "{{symbol}} {{long_exchange}}→{{short_exchange}}",
           "refId": "A"
         }
       ],
@@ -1915,7 +1471,7 @@
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 76
+        "y": 64
       },
       "id": 24,
       "options": {
@@ -1944,22 +1500,11 @@
       "pluginVersion": "11.5.3",
       "targets": [
         {
-          "expr": "histogram_quantile(0.10, sum by (le, spread_pct_bucket) (increase(spread_session_duration_hist_ms_bucket{symbol=~\"$symbol\", long_exchange=~\"$long_exchange\", short_exchange=~\"$short_exchange\"}[$__range])))",
-          "legendFormat": "p10 {{spread_pct_bucket}}%",
-          "refId": "A",
-          "instant": true
-        },
-        {
+          "editorMode": "code",
           "expr": "histogram_quantile(0.50, sum by (le, spread_pct_bucket) (increase(spread_session_duration_hist_ms_bucket{symbol=~\"$symbol\", long_exchange=~\"$long_exchange\", short_exchange=~\"$short_exchange\"}[$__range])))",
+          "instant": true,
           "legendFormat": "p50 {{spread_pct_bucket}}%",
-          "refId": "B",
-          "instant": true
-        },
-        {
-          "expr": "histogram_quantile(0.90, sum by (le, spread_pct_bucket) (increase(spread_session_duration_hist_ms_bucket{symbol=~\"$symbol\", long_exchange=~\"$long_exchange\", short_exchange=~\"$short_exchange\"}[$__range])))",
-          "legendFormat": "p90 {{spread_pct_bucket}}%",
-          "refId": "C",
-          "instant": true
+          "refId": "B"
         }
       ],
       "title": "Spread Size vs Session Duration (median ms per spread% bucket)",
@@ -2020,50 +1565,46 @@
         "type": "query"
       },
       {
-        "name": "long_exchange",
-        "label": "Long Exchange",
-        "type": "query",
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
         "datasource": {
           "type": "prometheus",
           "uid": "prometheus"
         },
+        "includeAll": true,
+        "label": "Long Exchange",
+        "name": "long_exchange",
+        "options": [],
         "query": {
           "query": "label_values(spread_session_duration_ms, long_exchange)",
           "refId": "A"
         },
+        "refresh": 2,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
         "current": {
           "text": "All",
           "value": "$__all"
         },
-        "options": [],
-        "hide": 0,
-        "includeAll": true,
-        "allValue": ".*",
-        "multi": false,
-        "refresh": 2
-      },
-      {
-        "name": "short_exchange",
-        "label": "Short Exchange",
-        "type": "query",
         "datasource": {
           "type": "prometheus",
           "uid": "prometheus"
         },
+        "includeAll": true,
+        "label": "Short Exchange",
+        "name": "short_exchange",
+        "options": [],
         "query": {
           "query": "label_values(spread_session_duration_ms, short_exchange)",
           "refId": "A"
         },
-        "current": {
-          "text": "All",
-          "value": "$__all"
-        },
-        "options": [],
-        "hide": 0,
-        "includeAll": true,
-        "allValue": ".*",
-        "multi": false,
-        "refresh": 2
+        "refresh": 2,
+        "type": "query"
       }
     ]
   },
@@ -2075,6 +1616,6 @@
   "timezone": "browser",
   "title": "Crypto Price Aggregator",
   "uid": "crypto-aggregator",
-  "version": 5,
+  "version": 9,
   "weekStart": ""
 }
