@@ -6,6 +6,7 @@ use prometheus::{Encoder, GaugeVec, HistogramOpts, HistogramVec, IntCounter, Int
 use redis::streams::{StreamReadOptions, StreamReadReply};
 use redis::AsyncCommands;
 use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -52,13 +53,15 @@ lazy_static! {
         "Total number of spread opportunities published to Redis"
     ).unwrap();
 
-    static ref QUOTE_EVENT_TIMESTAMP_MS: GaugeVec = GaugeVec::new(
-        Opts::new("quote_event_timestamp_ms", "Last exchange-emitted quote timestamp per exchange (ms)"),
+    // Age (ms) of the quote at the moment spread-calculator processes it.
+    // Stored as age, not epoch, so Grafana can read it directly without time()-subtraction.
+    static ref QUOTE_EVENT_AGE_MS: GaugeVec = GaugeVec::new(
+        Opts::new("quote_event_age_ms", "Age of exchange-emitted quote at calculation time (ms)"),
         &["symbol", "exchange"]
     ).unwrap();
 
-    static ref QUOTE_RECEIVED_TIMESTAMP_MS: GaugeVec = GaugeVec::new(
-        Opts::new("quote_received_timestamp_ms", "When our aggregator received the quote (ms)"),
+    static ref QUOTE_RECEIVED_AGE_MS: GaugeVec = GaugeVec::new(
+        Opts::new("quote_received_age_ms", "Age of quote since aggregator received it, at calculation time (ms)"),
         &["symbol", "exchange"]
     ).unwrap();
 
@@ -97,8 +100,8 @@ fn register_metrics() {
     REGISTRY.register(Box::new(EVENTS_PROCESSED.clone())).ok();
     REGISTRY.register(Box::new(SPREADS_CALCULATED.clone())).ok();
     REGISTRY.register(Box::new(SPREADS_PUBLISHED.clone())).ok();
-    REGISTRY.register(Box::new(QUOTE_EVENT_TIMESTAMP_MS.clone())).ok();
-    REGISTRY.register(Box::new(QUOTE_RECEIVED_TIMESTAMP_MS.clone())).ok();
+    REGISTRY.register(Box::new(QUOTE_EVENT_AGE_MS.clone())).ok();
+    REGISTRY.register(Box::new(QUOTE_RECEIVED_AGE_MS.clone())).ok();
     REGISTRY.register(Box::new(SPREAD_SESSIONS_STARTED.clone())).ok();
     REGISTRY.register(Box::new(SPREAD_SESSION_DURATION_MS.clone())).ok();
     REGISTRY.register(Box::new(SPREAD_SESSION_LAST_DURATION_MS.clone())).ok();
@@ -107,8 +110,8 @@ fn register_metrics() {
 
 #[derive(Debug, Clone)]
 struct QuoteData {
-    bid: Decimal,
-    ask: Decimal,
+    bid: f64,
+    ask: f64,
     timestamp: u64,   // ms — exchange event time
     received_at: u64, // ms — local aggregator receive time
 }
@@ -120,7 +123,7 @@ struct SpreadSession {
     symbol: String,
     long_exchange: String,
     short_exchange: String,
-    starting_spread_pct: Decimal,
+    starting_spread_pct: f64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -187,7 +190,7 @@ fn now_ms() -> u64 {
 fn calculate_spreads(
     symbol: &str,
     quotes: &HashMap<Exchange, QuoteData>,
-    publish_min_pct: Decimal,
+    publish_min_pct: f64,
     max_age_ms: u64,
 ) -> Vec<SpreadOpportunity> {
     let mut opportunities = Vec::new();
@@ -222,32 +225,35 @@ fn calculate_spreads(
                 continue;
             }
 
+            let ex1_str = ex1.to_string();
+            let ex2_str = ex2.to_string();
+
+            info!(
+                symbol,
+                exchange1 = %ex1_str, pipeline_age1_ms = ts.saturating_sub(q1.received_at), total_age1_ms = age1,
+                exchange2 = %ex2_str, pipeline_age2_ms = ts.saturating_sub(q2.received_at), total_age2_ms = age2,
+                "Quote ages at spread calculation"
+            );
+
             // Buy on ex1 (ask), sell on ex2 (bid)
             if q2.bid > q1.ask {
                 let spread_abs = q2.bid - q1.ask;
-                let spread_pct = (spread_abs / q1.ask) * Decimal::from(100);
+                let spread_pct = (spread_abs / q1.ask) * 100.0;
 
-                SPREAD_ABSOLUTE
-                    .with_label_values(&[symbol, &ex2.to_string(), &ex1.to_string()])
-                    .set(spread_abs.to_string().parse().unwrap_or(0.0));
-                SPREAD_PERCENT
-                    .with_label_values(&[symbol, &ex2.to_string(), &ex1.to_string()])
-                    .set(spread_pct.to_string().parse().unwrap_or(0.0));
+                SPREAD_ABSOLUTE.with_label_values(&[symbol, &ex2_str, &ex1_str]).set(spread_abs);
+                SPREAD_PERCENT.with_label_values(&[symbol, &ex2_str, &ex1_str]).set(spread_pct);
                 SPREADS_CALCULATED.inc();
 
-                debug!(
-                    symbol, buy_at = %ex1, sell_at = %ex2, spread_pct = %spread_pct,
-                    "Arbitrage opportunity detected"
-                );
+                debug!(symbol, buy_at = %ex1, sell_at = %ex2, spread_pct, "Arbitrage opportunity detected");
 
                 if spread_pct >= publish_min_pct {
                     opportunities.push(SpreadOpportunity {
                         symbol: symbol.to_string(),
                         long_exchange: *ex1,
-                        long_exchange_price: q1.ask,
+                        long_exchange_price: Decimal::try_from(q1.ask).unwrap_or(Decimal::ZERO),
                         short_exchange: *ex2,
-                        short_exchange_price: q2.bid,
-                        spread_percent: spread_pct,
+                        short_exchange_price: Decimal::try_from(q2.bid).unwrap_or(Decimal::ZERO),
+                        spread_percent: Decimal::try_from(spread_pct).unwrap_or(Decimal::ZERO),
                         size: Decimal::ZERO,
                         timestamp: ts,
                     });
@@ -257,29 +263,22 @@ fn calculate_spreads(
             // Buy on ex2 (ask), sell on ex1 (bid)
             if q1.bid > q2.ask {
                 let spread_abs = q1.bid - q2.ask;
-                let spread_pct = (spread_abs / q2.ask) * Decimal::from(100);
+                let spread_pct = (spread_abs / q2.ask) * 100.0;
 
-                SPREAD_ABSOLUTE
-                    .with_label_values(&[symbol, &ex1.to_string(), &ex2.to_string()])
-                    .set(spread_abs.to_string().parse().unwrap_or(0.0));
-                SPREAD_PERCENT
-                    .with_label_values(&[symbol, &ex1.to_string(), &ex2.to_string()])
-                    .set(spread_pct.to_string().parse().unwrap_or(0.0));
+                SPREAD_ABSOLUTE.with_label_values(&[symbol, &ex1_str, &ex2_str]).set(spread_abs);
+                SPREAD_PERCENT.with_label_values(&[symbol, &ex1_str, &ex2_str]).set(spread_pct);
                 SPREADS_CALCULATED.inc();
 
-                debug!(
-                    symbol, buy_at = %ex2, sell_at = %ex1, spread_pct = %spread_pct,
-                    "Arbitrage opportunity detected"
-                );
+                debug!(symbol, buy_at = %ex2, sell_at = %ex1, spread_pct, "Arbitrage opportunity detected");
 
                 if spread_pct >= publish_min_pct {
                     opportunities.push(SpreadOpportunity {
                         symbol: symbol.to_string(),
                         long_exchange: *ex2,
-                        long_exchange_price: q2.ask,
+                        long_exchange_price: Decimal::try_from(q2.ask).unwrap_or(Decimal::ZERO),
                         short_exchange: *ex1,
-                        short_exchange_price: q1.bid,
-                        spread_percent: spread_pct,
+                        short_exchange_price: Decimal::try_from(q1.bid).unwrap_or(Decimal::ZERO),
+                        spread_percent: Decimal::try_from(spread_pct).unwrap_or(Decimal::ZERO),
                         size: Decimal::ZERO,
                         timestamp: ts,
                     });
@@ -291,13 +290,13 @@ fn calculate_spreads(
     opportunities
 }
 
-fn update_best_prices(symbol: &str, quotes: &HashMap<Exchange, QuoteData>) {
+fn update_best_prices(symbol: &str, quotes: &HashMap<Exchange, QuoteData>, now: u64) {
     for (exchange, quote) in quotes {
         let ex = exchange.to_string();
-        BEST_BID.with_label_values(&[symbol, &ex]).set(quote.bid.to_string().parse().unwrap_or(0.0));
-        BEST_ASK.with_label_values(&[symbol, &ex]).set(quote.ask.to_string().parse().unwrap_or(0.0));
-        QUOTE_EVENT_TIMESTAMP_MS.with_label_values(&[symbol, &ex]).set(quote.timestamp as f64);
-        QUOTE_RECEIVED_TIMESTAMP_MS.with_label_values(&[symbol, &ex]).set(quote.received_at as f64);
+        BEST_BID.with_label_values(&[symbol, &ex]).set(quote.bid);
+        BEST_ASK.with_label_values(&[symbol, &ex]).set(quote.ask);
+        QUOTE_EVENT_AGE_MS.with_label_values(&[symbol, &ex]).set(now.saturating_sub(quote.timestamp) as f64);
+        QUOTE_RECEIVED_AGE_MS.with_label_values(&[symbol, &ex]).set(now.saturating_sub(quote.received_at) as f64);
     }
 }
 
@@ -363,7 +362,7 @@ async fn consume_streams(
     symbols: Vec<String>,
     store: QuoteStore,
     spread_tx: mpsc::Sender<SpreadOpportunity>,
-    publish_min_pct: Decimal,
+    publish_min_pct: f64,
     max_quote_age_ms: u64,
 ) -> Result<()> {
     let client = redis::Client::open(redis_url)?;
@@ -448,10 +447,11 @@ async fn consume_streams(
                         let fields: Vec<(String, redis::Value)> = entry.map.into_iter().collect();
                         if let Some(se) = parse_stream_entry(&fields) {
                             if let Some(exchange) = parse_exchange(&se.exchange) {
-                                let bid: Decimal = se.bid.parse().unwrap_or_default();
-                                let ask: Decimal = se.ask.parse().unwrap_or_default();
+                                let bid: f64 = se.bid.parse().unwrap_or(0.0);
+                                let ask: f64 = se.ask.parse().unwrap_or(0.0);
                                 let timestamp: u64 = se.timestamp.parse().unwrap_or(0);
                                 let received_at: u64 = se.received_at.parse().unwrap_or(0);
+                            
                                 latest.insert(exchange, QuoteData { bid, ask, timestamp, received_at });
                             }
                         }
@@ -475,10 +475,11 @@ async fn consume_streams(
 
                 // Calculate spreads once per symbol after the whole batch is applied
                 for symbol in symbols_updated {
+                    let now = now_ms();
                     let opportunities = {
                         let store_guard = store.read().await;
                         if let Some(quotes) = store_guard.get(&symbol) {
-                            update_best_prices(&symbol, quotes);
+                            update_best_prices(&symbol, quotes, now);
                             calculate_spreads(&symbol, quotes, publish_min_pct, max_quote_age_ms)
                         } else {
                             vec![]
@@ -500,7 +501,7 @@ async fn consume_streams(
                                 symbol: opp.symbol.clone(),
                                 long_exchange: long_str.clone(),
                                 short_exchange: short_str.clone(),
-                                starting_spread_pct: opp.spread_percent,
+                                starting_spread_pct: opp.spread_percent.to_f64().unwrap_or(0.0),
                             });
                             SPREAD_SESSIONS_STARTED
                                 .with_label_values(&[&opp.symbol, &long_str, &short_str])
@@ -527,7 +528,7 @@ async fn consume_streams(
                         let s = sessions.remove(&key).unwrap();
                         let duration_ms = now.saturating_sub(s.started_at_ms);
                         // floor spread to nearest 0.01%, e.g. 0.0839 → "0.08"
-                        let pct_f64: f64 = s.starting_spread_pct.to_string().parse().unwrap_or(0.0);
+                        let pct_f64: f64 = s.starting_spread_pct;
                         let pct_bucket = format!("{:.2}", (pct_f64 * 100.0).floor() / 100.0);
                         SPREAD_SESSION_DURATION_MS
                             .with_label_values(&[&s.symbol, &s.long_exchange, &s.short_exchange])
@@ -601,10 +602,10 @@ async fn main() -> Result<()> {
         .collect();
 
     // Minimum spread (%) to publish to Redis for the execution engine
-    let publish_min_pct: Decimal = std::env::var("PUBLISH_MIN_SPREAD_PCT")
+    let publish_min_pct: f64 = std::env::var("PUBLISH_MIN_SPREAD_PCT")
         .unwrap_or_else(|_| "0.05".into())
         .parse()
-        .unwrap_or(Decimal::new(5, 2));
+        .unwrap_or(0.05);
 
     // Max age of an exchange quote before it is considered stale (ms)
     let max_quote_age_ms: u64 = std::env::var("MAX_QUOTE_AGE_MS")

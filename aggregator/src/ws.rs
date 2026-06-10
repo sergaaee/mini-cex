@@ -1,4 +1,4 @@
-use crate::metrics::{WS_MESSAGES_RECEIVED, update_price_metrics};
+use crate::metrics::{update_price_metrics};
 use crate::models::{self, Quotes};
 use crate::publisher::{PriceEvent, PublisherHandle};
 use crate::utils::create_subscribe_message;
@@ -66,9 +66,7 @@ pub async fn start_ws(
                                 .as_millis() as u64;
                             // Обновляем Prometheus метрики
                             let exchange_str = exchange.to_string();
-                            WS_MESSAGES_RECEIVED
-                                .with_label_values(&[&exchange_str])
-                                .inc();
+
                             update_price_metrics(
                                 &sym_clone,
                                 &exchange_str,

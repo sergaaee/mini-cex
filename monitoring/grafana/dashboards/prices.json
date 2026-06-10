@@ -1594,25 +1594,17 @@
       "pluginVersion": "11.5.3",
       "targets": [
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "time() * 1000 - quote_event_timestamp_ms{symbol=~\"$symbol\"}",
-          "legendFormat": "event age \u2014 {{symbol}} / {{exchange}}",
+          "expr": "quote_event_age_ms{symbol=~\"$symbol\"}",
+          "legendFormat": "exchange ts age \u2014 {{exchange}}",
           "refId": "A"
         },
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "time() * 1000 - quote_received_timestamp_ms{symbol=~\"$symbol\"}",
-          "legendFormat": "received age \u2014 {{symbol}} / {{exchange}}",
+          "expr": "quote_received_age_ms{symbol=~\"$symbol\"}",
+          "legendFormat": "pipeline age \u2014 {{exchange}}",
           "refId": "B"
         }
       ],
-      "title": "Orderbook Age: Exchange Event vs Received (ms)",
+      "title": "Orderbook Age at Calculation (ms)",
       "type": "timeseries"
     },
     {

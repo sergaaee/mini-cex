@@ -6,7 +6,7 @@ use rust_decimal::Decimal;
 use std::collections::HashMap;
 use std::str::FromStr;
 use tokio::sync::mpsc;
-use tracing::{debug, warn};
+use tracing::{info, warn};
 
 fn parse_exchange(s: &str) -> Option<Exchange> {
     match s {
@@ -90,7 +90,7 @@ pub async fn consume_trades(redis_url: String, tx: mpsc::Sender<TradeSignal>) ->
                             entry.map.into_iter().collect();
 
                         if let Some(signal) = parse_trade_entry(&fields) {
-                            debug!(
+                            info!(
                                 symbol = %signal.symbol,
                                 spread = %signal.spread_percent,
                                 dry_run = signal.dry_run,

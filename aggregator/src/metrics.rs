@@ -55,12 +55,6 @@ lazy_static! {
         "aggregator_events_dropped_total",
         "Total number of events dropped due to buffer full"
     ).expect("metric can be created");
-
-    pub static ref WS_MESSAGES_RECEIVED: IntCounterVec = IntCounterVec::new(
-        Opts::new("ws_messages_received_total", "Total WebSocket messages received")
-            .namespace("aggregator"),
-        &["exchange"]
-    ).expect("metric can be created");
 }
 
 /// Регистрирует все метрики в registry
@@ -71,7 +65,6 @@ pub fn register_metrics() {
     REGISTRY.register(Box::new(PRICE_SPREAD_PERCENT.clone())).expect("collector registered");
     REGISTRY.register(Box::new(EVENTS_PUBLISHED.clone())).expect("collector registered");
     REGISTRY.register(Box::new(EVENTS_DROPPED.clone())).expect("collector registered");
-    REGISTRY.register(Box::new(WS_MESSAGES_RECEIVED.clone())).expect("collector registered");
 }
 
 /// Обновляет метрики цен
