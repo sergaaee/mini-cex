@@ -107,7 +107,9 @@ impl DecisionEngine {
             }
         };
 
-        let qty = (self.trade_size_usd / opp.long_exchange_price).round_dp(precision);
+        let qty = (self.trade_size_usd / opp.long_exchange_price)
+            .round_dp(precision)
+            .min(opp.size);
         let dry_run = self.dry_run;
         let ts = SystemTime::now()
             .duration_since(UNIX_EPOCH)
