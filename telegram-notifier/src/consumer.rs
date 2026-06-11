@@ -39,6 +39,7 @@ fn parse_trade_entry(fields: &[(String, redis::Value)]) -> Option<TradeSignal> {
         short_price: Decimal::from_str(map.get("short_price")?).ok()?,
         spread_percent: Decimal::from_str(map.get("spread_percent")?).ok()?,
         qty: Decimal::from_str(map.get("qty")?).unwrap_or(Decimal::ZERO),
+        available_size: Decimal::from_str(map.get("available_size").map(|s| s.as_str()).unwrap_or("0")).unwrap_or(Decimal::ZERO),
         dry_run: map.get("dry_run").map(|v| v == "true").unwrap_or(true),
         timestamp: map.get("timestamp")?.parse().unwrap_or(0),
     })

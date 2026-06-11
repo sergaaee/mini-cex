@@ -103,6 +103,7 @@ impl RedisClient {
             ("short_price", signal.short_price.to_string()),
             ("spread_percent", signal.spread_percent.to_string()),
             ("qty", signal.qty.to_string()),
+            ("available_size", signal.available_size.to_string()),
             ("dry_run", signal.dry_run.to_string()),
             ("timestamp", signal.timestamp.to_string()),
         ];

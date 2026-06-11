@@ -45,6 +45,7 @@ pub struct TradeSignal {
     pub short_price: Decimal,
     pub spread_percent: Decimal,
     pub qty: Decimal,
+    pub available_size: Decimal,
     pub dry_run: bool,
     pub timestamp: u64,
 }

@@ -70,12 +70,13 @@ fn format_signal(signal: &TradeSignal) -> String {
     format!(
         "{header}\n\
         \n\
-        Symbol: <b>{symbol}</b>\n\
-        Long:   <b>{long_ex}</b> @ <b>${long_price:.2}</b>\n\
-        Short:  <b>{short_ex}</b> @ <b>${short_price:.2}</b>\n\
-        Spread: <b>{spread:.3}%</b>\n\
-        Qty:    <b>{qty:.6}</b>\n\
-        Time:   {datetime}",
+        Symbol:    <b>{symbol}</b>\n\
+        Long:      <b>{long_ex}</b> @ <b>${long_price:.2}</b>\n\
+        Short:     <b>{short_ex}</b> @ <b>${short_price:.2}</b>\n\
+        Spread:    <b>{spread:.3}%</b>\n\
+        Exec size: <b>{qty:.6}</b>\n\
+        Avail:     <b>{avail:.6}</b>\n\
+        Time:      {datetime}",
         header = header,
         symbol = signal.symbol,
         long_ex = signal.long_exchange,
@@ -84,6 +85,7 @@ fn format_signal(signal: &TradeSignal) -> String {
         short_price = signal.short_price,
         spread = signal.spread_percent,
         qty = signal.qty,
+        avail = signal.available_size,
         datetime = datetime,
     )
 }

@@ -138,6 +138,7 @@ impl DecisionEngine {
             short_price: opp.short_exchange_price,
             spread_percent: opp.spread_percent,
             qty,
+            available_size: opp.size,
             dry_run,
             timestamp: ts,
         };
