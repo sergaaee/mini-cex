@@ -3,6 +3,7 @@ use common::models::position::{
     AsterClient, BackpackClient, BinanceClient, BybitClient, HibachiClient, PositionManagement,
 };
 use common::{Exchange, SpreadOpportunity, TradeSignal};
+use rust_decimal::prelude::FromPrimitive;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -107,9 +108,14 @@ impl DecisionEngine {
             }
         };
 
-        let qty = (self.trade_size_usd / opp.long_exchange_price)
+        let mut qty = (self.trade_size_usd / opp.long_exchange_price)
             .round_dp(precision)
             .min(opp.size);
+        if opp.symbol.as_str() == "BTC" {
+            qty = qty.min(Decimal::from_f64(0.001).unwrap());
+        } else if opp.symbol.as_str() == "ETH" {
+            qty = qty.min(Decimal::from_f64(0.013).unwrap());
+        }
         let dry_run = self.dry_run;
         let ts = SystemTime::now()
             .duration_since(UNIX_EPOCH)
