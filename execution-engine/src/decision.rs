@@ -98,6 +98,10 @@ impl DecisionEngine {
             "BTC" => 3,
             "ETH" => 3,
             "SOL" => 2,
+            "HYPE" => 2,
+            "BNB" => 2,
+            "SUI" => 1,
+            "XRP" => 1,
             _ => {
                 panic!("Unsupported symbol: {}", opp.symbol);
             }
