@@ -84,6 +84,23 @@ services:
       - REDIS_URL=redis://redis:6379/
       - RUST_LOG=telegram_notifier=info
 
+  fill-tracker:
+    build:
+      context: .
+      dockerfile: fill-tracker/Dockerfile
+    container_name: fill-tracker
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      execution-engine:
+        condition: service_started
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://redis:6379/
+      - RUST_LOG=fill_tracker=info
+
   prometheus:
     image: prom/prometheus:v2.53.4
     container_name: prometheus

@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use strum_macros::Display;
+pub use models::order::Side;
 
 pub mod errors;
 pub mod models;
@@ -46,6 +47,42 @@ pub struct TradeSignal {
     pub spread_percent: Decimal,
     pub qty: Decimal,
     pub available_size: Decimal,
+    pub dry_run: bool,
+    pub timestamp: u64,
+}
+
+/// Published by execution-engine after placing both legs — links the two order IDs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PendingFill {
+    pub trade_id: String,
+    pub symbol: String,
+    pub long_exchange: Exchange,
+    pub long_order_id: String,
+    pub short_exchange: Exchange,
+    pub short_order_id: String,
+    pub planned_spread_pct: Decimal,
+    pub planned_long_price: Decimal,
+    pub planned_short_price: Decimal,
+    pub qty: Decimal,
+    pub dry_run: bool,
+    pub timestamp: u64,
+}
+
+/// Published by fill-tracker after both legs are confirmed filled.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FillResult {
+    pub trade_id: String,
+    pub symbol: String,
+    pub long_exchange: Exchange,
+    pub long_order_id: String,
+    pub long_avg_price: Decimal,
+    pub long_filled_qty: Decimal,
+    pub short_exchange: Exchange,
+    pub short_order_id: String,
+    pub short_avg_price: Decimal,
+    pub short_filled_qty: Decimal,
+    pub planned_spread_pct: Decimal,
+    pub realized_spread_pct: Decimal,
     pub dry_run: bool,
     pub timestamp: u64,
 }

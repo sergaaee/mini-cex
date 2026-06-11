@@ -1,6 +1,6 @@
 use crate::errors::price::PriceError;
 use crate::models::ticker::Quote;
-use crate::{Exchange, RedisClient, SpreadOpportunity, TradeSignal};
+use crate::{Exchange, FillResult, PendingFill, RedisClient, SpreadOpportunity, TradeSignal};
 use redis::AsyncCommands;
 use redis::streams::StreamMaxlen;
 
@@ -137,6 +137,64 @@ impl RedisClient {
         redis::cmd("XADD")
             .arg("spreads")
             .arg(StreamMaxlen::Approx(1000))
+            .arg("*")
+            .arg(items)
+            .query_async(conn)
+            .await
+    }
+
+    pub async fn publish_pending_fill(
+        &self,
+        conn: &mut redis::aio::MultiplexedConnection,
+        fill: &PendingFill,
+    ) -> redis::RedisResult<String> {
+        let items: &[(&str, String)] = &[
+            ("trade_id", fill.trade_id.clone()),
+            ("symbol", fill.symbol.clone()),
+            ("long_exchange", fill.long_exchange.to_string()),
+            ("long_order_id", fill.long_order_id.clone()),
+            ("short_exchange", fill.short_exchange.to_string()),
+            ("short_order_id", fill.short_order_id.clone()),
+            ("planned_spread_pct", fill.planned_spread_pct.to_string()),
+            ("planned_long_price", fill.planned_long_price.to_string()),
+            ("planned_short_price", fill.planned_short_price.to_string()),
+            ("qty", fill.qty.to_string()),
+            ("dry_run", fill.dry_run.to_string()),
+            ("timestamp", fill.timestamp.to_string()),
+        ];
+        redis::cmd("XADD")
+            .arg("pending_fills")
+            .arg(StreamMaxlen::Approx(1000))
+            .arg("*")
+            .arg(items)
+            .query_async(conn)
+            .await
+    }
+
+    pub async fn publish_fill_result(
+        &self,
+        conn: &mut redis::aio::MultiplexedConnection,
+        result: &FillResult,
+    ) -> redis::RedisResult<String> {
+        let items: &[(&str, String)] = &[
+            ("trade_id", result.trade_id.clone()),
+            ("symbol", result.symbol.clone()),
+            ("long_exchange", result.long_exchange.to_string()),
+            ("long_order_id", result.long_order_id.clone()),
+            ("long_avg_price", result.long_avg_price.to_string()),
+            ("long_filled_qty", result.long_filled_qty.to_string()),
+            ("short_exchange", result.short_exchange.to_string()),
+            ("short_order_id", result.short_order_id.clone()),
+            ("short_avg_price", result.short_avg_price.to_string()),
+            ("short_filled_qty", result.short_filled_qty.to_string()),
+            ("planned_spread_pct", result.planned_spread_pct.to_string()),
+            ("realized_spread_pct", result.realized_spread_pct.to_string()),
+            ("dry_run", result.dry_run.to_string()),
+            ("timestamp", result.timestamp.to_string()),
+        ];
+        redis::cmd("XADD")
+            .arg("fills")
+            .arg(StreamMaxlen::Approx(500))
             .arg("*")
             .arg(items)
             .query_async(conn)
