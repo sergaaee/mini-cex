@@ -50,6 +50,9 @@ impl DecisionEngine {
     /// so this loop can immediately move on to the next opportunity.
     pub fn evaluate(&mut self, opp: SpreadOpportunity) {
         SPREADS_RECEIVED.with_label_values(&[&opp.symbol]).inc();
+        if opp.symbol.as_str() == "BNB" {
+            return;
+        }
 
         // Reject opportunities that are already stale by the time we process them
         let now_ms = SystemTime::now()
