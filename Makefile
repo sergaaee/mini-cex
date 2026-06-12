@@ -1,0 +1,31 @@
+UNAME    := $(shell uname -s)
+TARGET   := x86_64-unknown-linux-gnu
+DIST     := dist/linux
+SERVICES := aggregator spread-calculator execution-engine telegram-notifier fill-tracker position-manager
+
+ifeq ($(UNAME),Linux)
+    BUILD_CMD := cargo build --release
+    BIN_DIR   := target/release
+else
+    BUILD_CMD := cross build --release --target $(TARGET)
+    BIN_DIR   := target/$(TARGET)/release
+endif
+
+.PHONY: build dist docker-build up clean
+
+build:
+	$(BUILD_CMD)
+
+dist: build
+	mkdir -p $(DIST)
+	$(foreach svc,$(SERVICES),cp $(BIN_DIR)/$(svc) $(DIST)/$(svc);)
+
+docker-build: dist
+	docker-compose build
+
+up: dist
+	docker-compose up -d
+
+clean:
+	cargo clean
+	rm -rf $(DIST)
