@@ -13,6 +13,7 @@ pub async fn close_position(
     pool: &PgPool,
     redis_client: &RedisClient,
     position: PositionRow,
+    close_qty: Decimal,
 ) {
     // Atomic CAS: only proceed if we won the race to set status='closing'
     let won = match mark_closing(pool, &position.trade_id).await {
@@ -27,9 +28,13 @@ pub async fn close_position(
         return; // Another task already handling this position
     }
 
+    let is_partial = close_qty < position.long_qty;
     info!(
         trade_id = %position.trade_id,
         symbol = %position.symbol,
+        close_qty = %close_qty,
+        position_qty = %position.long_qty,
+        partial = is_partial,
         "Closing position — placing close orders"
     );
 
@@ -39,20 +44,20 @@ pub async fn close_position(
     }
 
     let (long_close_side, short_close_side) = match position.long_exchange {
-        Exchange::Binance => (Side::Sell, Side::Buy), // LONG on Binance → close with SELL; SHORT on Hibachi → close with BUY
+        Exchange::Binance => (Side::Sell, Side::Buy),
         _ => (Side::Sell, Side::Buy),
     };
 
     let long_result = close_leg(
         &position.long_exchange,
         &position.symbol,
-        position.long_qty,
+        close_qty,
         long_close_side,
     );
     let short_result = close_leg(
         &position.short_exchange,
         &position.symbol,
-        position.short_qty,
+        close_qty,
         short_close_side,
     );
 
@@ -81,8 +86,8 @@ pub async fn close_position(
                 short_close_order_id: short_order_id,
                 long_entry_price: position.long_entry_price,
                 short_entry_price: position.short_entry_price,
-                long_qty: position.long_qty,
-                short_qty: position.short_qty,
+                long_qty: close_qty,
+                short_qty: close_qty,
                 entry_spread_pct: position.entry_spread_pct,
                 dry_run: false,
                 timestamp: ts,

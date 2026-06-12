@@ -5,6 +5,23 @@ use std::fmt::{Display, Formatter};
 use strum_macros::Display;
 pub use models::order::Side;
 
+pub fn qty_precision(symbol: &str) -> u32 {
+    match symbol {
+        "BTC" => 3,
+        "ETH" => 3,
+        "SOL" => 2,
+        "HYPE" => 2,
+        "BNB" => 2,
+        "SUI" => 1,
+        "XRP" => 1,
+        _ => 2,
+    }
+}
+
+pub fn round_qty(qty: Decimal, symbol: &str) -> Decimal {
+    qty.round_dp(qty_precision(symbol))
+}
+
 pub mod errors;
 pub mod models;
 mod redis_client;

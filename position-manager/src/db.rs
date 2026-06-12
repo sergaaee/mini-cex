@@ -131,22 +131,25 @@ pub async fn mark_closed(pool: &PgPool, result: &CloseResult) -> Result<()> {
     sqlx::query(
         r#"
         UPDATE positions SET
-            status = 'closed',
-            long_close_price = $2,
-            short_close_price = $3,
-            realized_pnl = $4,
-            long_fee = $5,
-            short_fee = $6,
-            closed_at = NOW()
+            long_qty        = long_qty - $2,
+            short_qty       = short_qty - $2,
+            realized_pnl    = COALESCE(realized_pnl, 0) + $3,
+            long_fee        = COALESCE(long_fee, 0) + $4,
+            short_fee       = COALESCE(short_fee, 0) + $5,
+            long_close_price  = $6,
+            short_close_price = $7,
+            status    = CASE WHEN long_qty - $2 < 0.000001 THEN 'closed' ELSE 'open' END,
+            closed_at = CASE WHEN long_qty - $2 < 0.000001 THEN NOW() ELSE NULL END
         WHERE trade_id = $1
         "#,
     )
     .bind(&result.trade_id)
-    .bind(result.long_close_avg_price)
-    .bind(result.short_close_avg_price)
+    .bind(result.long_qty)
     .bind(result.realized_pnl)
     .bind(result.long_fee)
     .bind(result.short_fee)
+    .bind(result.long_close_avg_price)
+    .bind(result.short_close_avg_price)
     .execute(pool)
     .await?;
 

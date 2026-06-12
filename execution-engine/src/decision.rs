@@ -113,8 +113,12 @@ impl DecisionEngine {
         };
 
         let mut qty = (self.trade_size_usd / opp.long_exchange_price)
-            .round_dp(precision)
-            .min(opp.size);
+            .round_dp(precision);
+
+        if opp.size < qty {
+            return;
+        }
+
         if opp.symbol.as_str() == "BTC" {
             qty = qty.min(Decimal::from_f64(0.001).unwrap());
         } else if opp.symbol.as_str() == "ETH" {

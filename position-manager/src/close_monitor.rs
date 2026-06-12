@@ -1,5 +1,5 @@
 use anyhow::Result;
-use common::{Exchange, FillResult, RedisClient};
+use common::{round_qty, FillResult, RedisClient};
 use redis::streams::{StreamReadOptions, StreamReadReply};
 use redis::AsyncCommands;
 use rust_decimal::Decimal;
@@ -17,6 +17,8 @@ use crate::db::{load_open_positions, PositionRow};
 struct Quote {
     bid: Decimal,
     ask: Decimal,
+    bid_size: Decimal,
+    ask_size: Decimal,
     ts_ms: u64,
 }
 
@@ -109,12 +111,26 @@ pub async fn run_close_monitor(
                     };
 
                     if closing_spread >= close_min_spread_pct {
+                        // Close qty is limited by what's available in the order book
+                        let close_qty = round_qty(
+                            pos.long_qty
+                                .min(long_quote.bid_size)
+                                .min(pos.short_qty.min(short_quote.ask_size)),
+                            &pos.symbol,
+                        );
+
                         info!(
                             trade_id = %pos.trade_id,
                             symbol = %pos.symbol,
                             closing_spread = %closing_spread.round_dp(4),
+                            close_qty = %close_qty,
+                            position_qty = %pos.long_qty,
                             "Close condition met — spread captured, initiating close"
                         );
+
+                        if close_qty <= Decimal::ZERO {
+                            continue;
+                        }
 
                         let pool_clone = Arc::clone(&pool);
                         let redis_client_clone = Arc::clone(&redis_client);
@@ -124,6 +140,7 @@ pub async fn run_close_monitor(
                                 &pool_clone,
                                 &redis_client_clone,
                                 pos,
+                                close_qty,
                             )
                             .await;
                         });
@@ -194,13 +211,19 @@ async fn consume_quotes_for_symbol(
                             Some(v) => v,
                             None => continue,
                         };
+                        let bid_size = map.get("bid_size")
+                            .and_then(|s| Decimal::from_str(s).ok())
+                            .unwrap_or(Decimal::MAX);
+                        let ask_size = map.get("ask_size")
+                            .and_then(|s| Decimal::from_str(s).ok())
+                            .unwrap_or(Decimal::MAX);
                         let ts_ms = map
                             .get("timestamp")
                             .and_then(|s| s.parse::<u64>().ok())
                             .unwrap_or_else(now_ms);
 
                         let key = (symbol.clone(), exchange_str);
-                        cache.lock().unwrap().insert(key, Quote { bid, ask, ts_ms });
+                        cache.lock().unwrap().insert(key, Quote { bid, ask, bid_size, ask_size, ts_ms });
                     }
                 }
             }
