@@ -1,10 +1,14 @@
 UNAME    := $(shell uname -s)
-TARGET   := x86_64-unknown-linux-gnu.2.17
 DIST     := dist/linux
 SERVICES := aggregator spread-calculator execution-engine telegram-notifier fill-tracker position-manager
 
-BUILD_CMD := cargo zigbuild --release --target $(TARGET)
-BIN_DIR   := target/x86_64-unknown-linux-gnu/release
+ifeq ($(UNAME),Linux)
+    BUILD_CMD := cargo build --release
+    BIN_DIR   := target/release
+else
+    BUILD_CMD := cargo zigbuild --release --target x86_64-unknown-linux-gnu.2.17
+    BIN_DIR   := target/x86_64-unknown-linux-gnu/release
+endif
 
 .PHONY: build dist docker-build up clean
 
