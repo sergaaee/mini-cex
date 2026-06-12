@@ -127,10 +127,17 @@ struct BinancePosition {
     positionAmt: String,
 }
 
-#[derive(Deserialize, Debug)]
-struct BinanceOrder {
-    status: String,
-    side: String,
+#[derive(Deserialize)]
+struct BinanceOrderResponse {
+    #[serde(rename = "orderId")]
+    order_id: i64,
+}
+
+#[derive(Deserialize)]
+#[allow(dead_code)]
+struct HibachiOrderResponse {
+    #[serde(rename = "orderId")]
+    order_id: serde_json::Value, // can be int or string
 }
 
 #[derive(Deserialize)]
@@ -143,7 +150,8 @@ struct HibachiPosition {
 
 #[async_trait]
 pub trait PositionManagement {
-    async fn open_position(&self, symbol: &str, qty: Decimal, side: Side) -> Result<(), String>;
+    /// Places a market order. Returns the exchange-assigned order ID.
+    async fn open_position(&self, symbol: &str, qty: Decimal, side: Side) -> Result<String, String>;
     async fn close_position(&self, symbol: &str) -> Result<(), String>;
     async fn get_position(&self, symbol: &str) -> Result<Option<String>, String>;
 }
@@ -155,7 +163,7 @@ pub struct BinanceClient;
 
 #[async_trait]
 impl PositionManagement for BinanceClient {
-    async fn open_position(&self, symbol: &str, qty: Decimal, side: Side) -> Result<(), String> {
+    async fn open_position(&self, symbol: &str, qty: Decimal, side: Side) -> Result<String, String> {
         println!("Binance: opening {}, quantity: {} {}", side, qty, symbol);
 
         let api_key = binance_api_key();
@@ -172,8 +180,9 @@ impl PositionManagement for BinanceClient {
             _ => panic!("Unknown side!"),
         };
 
+        // newOrderRespType=RESULT ensures the full fill info is returned immediately
         let query = format!(
-            "type=MARKET&symbol={}USDT&side={}&quantity={}&positionSide={}&timestamp={}",
+            "type=MARKET&symbol={}USDT&side={}&quantity={}&positionSide={}&newOrderRespType=RESULT&timestamp={}",
             symbol, order_side, qty, position_side, timestamp
         );
 
@@ -193,10 +202,14 @@ impl PositionManagement for BinanceClient {
             .await
             .map_err(|e| e.to_string())?;
 
-        let text = resp.text().await.unwrap();
+        let text = resp.text().await.map_err(|e| e.to_string())?;
         println!("binance response = {:?}", text);
 
-        Ok(())
+        let order_id = serde_json::from_str::<BinanceOrderResponse>(&text)
+            .map(|r| r.order_id.to_string())
+            .map_err(|e| format!("Binance order parse error: {} — body: {}", e, text))?;
+
+        Ok(order_id)
     }
 
     async fn close_position(&self, symbol: &str) -> Result<(), String> {
@@ -258,9 +271,9 @@ pub struct BybitClient;
 
 #[async_trait]
 impl PositionManagement for BybitClient {
-    async fn open_position(&self, symbol: &str, qty: Decimal, side: Side) -> Result<(), String> {
+    async fn open_position(&self, symbol: &str, qty: Decimal, side: Side) -> Result<String, String> {
         println!("Bybit: opening {}, quantity: {} {}", side, qty, symbol);
-        Ok(())
+        Ok("stub".to_string())
     }
     async fn close_position(&self, symbol: &str) -> Result<(), String> {
         println!("Bybit: closing position {}", symbol);
@@ -361,7 +374,7 @@ fn sign_payload(payload: &[u8], private_key_hex: &str) -> Result<String, secp256
 
 #[async_trait]
 impl PositionManagement for HibachiClient {
-    async fn open_position(&self, symbol: &str, qty: Decimal, side: Side) -> Result<(), String> {
+    async fn open_position(&self, symbol: &str, qty: Decimal, side: Side) -> Result<String, String> {
         println!("Hibachi: opening {}, quantity: {} {}", side, qty, symbol);
 
         const URL: &str = "https://api.hibachi.xyz/trade/order";
@@ -426,7 +439,19 @@ impl PositionManagement for HibachiClient {
         let text = response.text().await.map_err(|e| e.to_string())?;
         println!("hibachi open response = {}", text);
 
-        Ok(())
+        // orderId can be returned as integer or string
+        let order_id = serde_json::from_str::<serde_json::Value>(&text)
+            .ok()
+            .and_then(|v| {
+                v.get("orderId").map(|id| match id {
+                    serde_json::Value::Number(n) => n.to_string(),
+                    serde_json::Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                })
+            })
+            .ok_or_else(|| format!("Hibachi: missing orderId in response: {}", text))?;
+
+        Ok(order_id)
     }
 
     async fn close_position(&self, symbol: &str) -> Result<(), String> {
@@ -458,9 +483,9 @@ pub struct BackpackClient;
 
 #[async_trait]
 impl PositionManagement for BackpackClient {
-    async fn open_position(&self, symbol: &str, qty: Decimal, side: Side) -> Result<(), String> {
+    async fn open_position(&self, symbol: &str, qty: Decimal, side: Side) -> Result<String, String> {
         println!("Backpack: opening {}, quantity: {} {}", side, qty, symbol);
-        Ok(())
+        Ok("stub".to_string())
     }
     async fn close_position(&self, symbol: &str) -> Result<(), String> {
         println!("Backpack: closing position {}", symbol);
@@ -492,7 +517,7 @@ pub struct AsterClient;
 
 #[async_trait]
 impl PositionManagement for AsterClient {
-    async fn open_position(&self, symbol: &str, qty: Decimal, side: Side) -> Result<(), String> {
+    async fn open_position(&self, symbol: &str, qty: Decimal, side: Side) -> Result<String, String> {
         println!("Aster: opening {}, quantity: {} {}", side, qty, symbol);
 
         let api_key = aster_api_key();
@@ -510,7 +535,7 @@ impl PositionManagement for AsterClient {
         };
 
         let query = format!(
-            "type=MARKET&symbol={}USDT&side={}&quantity={}&positionSide={}&timestamp={}",
+            "type=MARKET&symbol={}USDT&side={}&quantity={}&positionSide={}&newOrderRespType=RESULT&timestamp={}",
             symbol, order_side, qty, position_side, timestamp
         );
 
@@ -530,10 +555,14 @@ impl PositionManagement for AsterClient {
             .await
             .map_err(|e| e.to_string())?;
 
-        let text = resp.text().await.unwrap();
+        let text = resp.text().await.map_err(|e| e.to_string())?;
         println!("aster response = {:?}", text);
 
-        Ok(())
+        let order_id = serde_json::from_str::<BinanceOrderResponse>(&text)
+            .map(|r| r.order_id.to_string())
+            .map_err(|e| format!("Aster order parse error: {} — body: {}", e, text))?;
+
+        Ok(order_id)
     }
 
     async fn close_position(&self, symbol: &str) -> Result<(), String> {

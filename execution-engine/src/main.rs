@@ -4,6 +4,7 @@ use common::models::position::warmup_connections;
 use common::{RedisClient, SpreadOpportunity, TradeSignal};
 use prometheus::{Encoder, TextEncoder};
 use rust_decimal::Decimal;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
@@ -117,7 +118,9 @@ async fn main() -> Result<()> {
 
     tokio::spawn(start_metrics_server(metrics_port));
     tokio::spawn(consumer::consume_spreads(redis_url.clone(), spread_tx));
-    tokio::spawn(trade_publisher_worker(redis_url, trade_rx));
+    tokio::spawn(trade_publisher_worker(redis_url.clone(), trade_rx));
+
+    let redis_client = Arc::new(RedisClient::from_url(&redis_url));
 
     let mut engine = decision::DecisionEngine::new(
         min_spread_pct,
@@ -125,6 +128,7 @@ async fn main() -> Result<()> {
         cooldown_secs,
         dry_run,
         trade_tx,
+        redis_client,
     );
 
     while let Some(opp) = spread_rx.recv().await {

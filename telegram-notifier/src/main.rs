@@ -1,5 +1,5 @@
 use anyhow::Result;
-use common::TradeSignal;
+use common::{FillResult, TradeSignal};
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
@@ -33,12 +33,25 @@ async fn main() -> Result<()> {
         "Starting telegram notifier"
     );
 
-    let (tx, mut rx) = mpsc::channel::<TradeSignal>(64);
-    let notifier = notifier::TelegramNotifier::new(bot_token, chat_ids);
+    let (signal_tx, mut signal_rx) = mpsc::channel::<TradeSignal>(64);
+    let (fill_tx, mut fill_rx) = mpsc::channel::<FillResult>(64);
 
-    tokio::spawn(consumer::consume_trades(redis_url, tx));
+    let notifier = std::sync::Arc::new(notifier::TelegramNotifier::new(bot_token, chat_ids));
 
-    while let Some(signal) = rx.recv().await {
+    tokio::spawn(consumer::consume_trades(redis_url.clone(), signal_tx));
+    tokio::spawn(consumer::consume_fills(redis_url, fill_tx));
+
+    let notifier_fills = std::sync::Arc::clone(&notifier);
+    tokio::spawn(async move {
+        while let Some(fill) = fill_rx.recv().await {
+            info!(trade_id = %fill.trade_id, "Sending fill confirmation to Telegram");
+            if let Err(e) = notifier_fills.send_fill_result(&fill).await {
+                warn!(error = %e, "Failed to send fill result to Telegram");
+            }
+        }
+    });
+
+    while let Some(signal) = signal_rx.recv().await {
         info!(
             symbol = %signal.symbol,
             spread = %signal.spread_percent,

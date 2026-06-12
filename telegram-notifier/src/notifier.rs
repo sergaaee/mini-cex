@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use common::TradeSignal;
+use common::{FillResult, TradeSignal};
 use reqwest::Client;
 use rust_decimal::prelude::ToPrimitive;
 use serde_json::json;
@@ -23,6 +23,11 @@ impl TelegramNotifier {
 
     pub async fn send_trade_signal(&self, signal: &TradeSignal) -> Result<()> {
         let text = format_signal(signal);
+        self.send(&text).await
+    }
+
+    pub async fn send_fill_result(&self, fill: &FillResult) -> Result<()> {
+        let text = format_fill_result(fill);
         self.send(&text).await
     }
 
@@ -70,12 +75,13 @@ fn format_signal(signal: &TradeSignal) -> String {
     format!(
         "{header}\n\
         \n\
-        Symbol: <b>{symbol}</b>\n\
-        Long:   <b>{long_ex}</b> @ <b>${long_price:.2}</b>\n\
-        Short:  <b>{short_ex}</b> @ <b>${short_price:.2}</b>\n\
-        Spread: <b>{spread:.3}%</b>\n\
-        Qty:    <b>{qty:.6}</b>\n\
-        Time:   {datetime}",
+        Symbol:    <b>{symbol}</b>\n\
+        Long:      <b>{long_ex}</b> @ <b>${long_price:.2}</b>\n\
+        Short:     <b>{short_ex}</b> @ <b>${short_price:.2}</b>\n\
+        Spread:    <b>{spread:.3}%</b>\n\
+        Exec size: <b>{qty:.6}</b>\n\
+        Avail:     <b>{avail:.6}</b>\n\
+        Time:      {datetime}",
         header = header,
         symbol = signal.symbol,
         long_ex = signal.long_exchange,
@@ -84,6 +90,38 @@ fn format_signal(signal: &TradeSignal) -> String {
         short_price = signal.short_price,
         spread = signal.spread_percent,
         qty = signal.qty,
+        avail = signal.available_size,
+        datetime = datetime,
+    )
+}
+
+fn format_fill_result(fill: &FillResult) -> String {
+    let header = if fill.dry_run {
+        "🔍 <b>DRY RUN — Fill Confirmed</b>"
+    } else {
+        "✅ <b>FILL CONFIRMED</b>"
+    };
+
+    let datetime = humanize_ts(fill.timestamp);
+
+    format!(
+        "{header}\n\
+        \n\
+        Symbol:    <b>{symbol}</b>\n\
+        Long:      <b>{long_ex}</b> @ <b>${long_price:.2}</b>  qty: {long_qty:.6}\n\
+        Short:     <b>{short_ex}</b> @ <b>${short_price:.2}</b>  qty: {short_qty:.6}\n\
+        Spread:    planned <b>{planned:.3}%</b>  →  realized <b>{realized:.3}%</b>\n\
+        Time:      {datetime}",
+        header = header,
+        symbol = fill.symbol,
+        long_ex = fill.long_exchange,
+        long_price = fill.long_avg_price,
+        long_qty = fill.long_filled_qty,
+        short_ex = fill.short_exchange,
+        short_price = fill.short_avg_price,
+        short_qty = fill.short_filled_qty,
+        planned = fill.planned_spread_pct,
+        realized = fill.realized_spread_pct,
         datetime = datetime,
     )
 }

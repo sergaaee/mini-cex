@@ -112,6 +112,8 @@ fn register_metrics() {
 struct QuoteData {
     bid: f64,
     ask: f64,
+    bid_size: f64,
+    ask_size: f64,
     timestamp: u64,   // ms — exchange event time
     received_at: u64, // ms — local aggregator receive time
 }
@@ -240,6 +242,7 @@ fn calculate_spreads(
                 debug!(symbol, buy_at = %ex1, sell_at = %ex2, spread_pct, "Arbitrage opportunity detected");
 
                 if spread_pct >= publish_min_pct {
+                    let available = q1.ask_size.min(q2.bid_size);
                     opportunities.push(SpreadOpportunity {
                         symbol: symbol.to_string(),
                         long_exchange: *ex1,
@@ -247,7 +250,7 @@ fn calculate_spreads(
                         short_exchange: *ex2,
                         short_exchange_price: Decimal::try_from(q2.bid).unwrap_or(Decimal::ZERO),
                         spread_percent: Decimal::try_from(spread_pct).unwrap_or(Decimal::ZERO),
-                        size: Decimal::ZERO,
+                        size: Decimal::try_from(available).unwrap_or(Decimal::ZERO),
                         timestamp: ts,
                     });
                 }
@@ -265,6 +268,7 @@ fn calculate_spreads(
                 debug!(symbol, buy_at = %ex2, sell_at = %ex1, spread_pct, "Arbitrage opportunity detected");
 
                 if spread_pct >= publish_min_pct {
+                    let available = q2.ask_size.min(q1.bid_size);
                     opportunities.push(SpreadOpportunity {
                         symbol: symbol.to_string(),
                         long_exchange: *ex2,
@@ -272,7 +276,7 @@ fn calculate_spreads(
                         short_exchange: *ex1,
                         short_exchange_price: Decimal::try_from(q1.bid).unwrap_or(Decimal::ZERO),
                         spread_percent: Decimal::try_from(spread_pct).unwrap_or(Decimal::ZERO),
-                        size: Decimal::ZERO,
+                        size: Decimal::try_from(available).unwrap_or(Decimal::ZERO),
                         timestamp: ts,
                     });
                 }
@@ -442,10 +446,12 @@ async fn consume_streams(
                             if let Some(exchange) = parse_exchange(&se.exchange) {
                                 let bid: f64 = se.bid.parse().unwrap_or(0.0);
                                 let ask: f64 = se.ask.parse().unwrap_or(0.0);
+                                let bid_size: f64 = se.bid_size.parse().unwrap_or(0.0);
+                                let ask_size: f64 = se.ask_size.parse().unwrap_or(0.0);
                                 let timestamp: u64 = se.timestamp.parse().unwrap_or(0);
                                 let received_at: u64 = se.received_at.parse().unwrap_or(0);
-                            
-                                latest.insert(exchange, QuoteData { bid, ask, timestamp, received_at });
+
+                                latest.insert(exchange, QuoteData { bid, ask, bid_size, ask_size, timestamp, received_at });
                             }
                         }
                     }

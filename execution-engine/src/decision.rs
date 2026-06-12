@@ -2,9 +2,11 @@ use common::models::order::Side;
 use common::models::position::{
     AsterClient, BackpackClient, BinanceClient, BybitClient, HibachiClient, PositionManagement,
 };
-use common::{Exchange, SpreadOpportunity, TradeSignal};
+use common::{Exchange, PendingFill, RedisClient, SpreadOpportunity, TradeSignal};
+use rust_decimal::prelude::FromPrimitive;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
@@ -20,6 +22,7 @@ pub struct DecisionEngine {
     pub dry_run: bool,
     last_trade: HashMap<String, Instant>,
     trade_tx: mpsc::Sender<TradeSignal>,
+    redis_client: Arc<RedisClient>,
 }
 
 impl DecisionEngine {
@@ -29,6 +32,7 @@ impl DecisionEngine {
         cooldown_secs: u64,
         dry_run: bool,
         trade_tx: mpsc::Sender<TradeSignal>,
+        redis_client: Arc<RedisClient>,
     ) -> Self {
         Self {
             min_spread_pct,
@@ -37,6 +41,7 @@ impl DecisionEngine {
             dry_run,
             last_trade: HashMap::new(),
             trade_tx,
+            redis_client,
         }
     }
 
@@ -98,12 +103,23 @@ impl DecisionEngine {
             "BTC" => 3,
             "ETH" => 3,
             "SOL" => 2,
+            "HYPE" => 2,
+            "BNB" => 2,
+            "SUI" => 1,
+            "XRP" => 1,
             _ => {
                 panic!("Unsupported symbol: {}", opp.symbol);
             }
         };
 
-        let qty = (self.trade_size_usd / opp.long_exchange_price).round_dp(precision);
+        let mut qty = (self.trade_size_usd / opp.long_exchange_price)
+            .round_dp(precision)
+            .min(opp.size);
+        if opp.symbol.as_str() == "BTC" {
+            qty = qty.min(Decimal::from_f64(0.001).unwrap());
+        } else if opp.symbol.as_str() == "ETH" {
+            qty = qty.min(Decimal::from_f64(0.013).unwrap());
+        }
         let dry_run = self.dry_run;
         let ts = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -138,6 +154,7 @@ impl DecisionEngine {
             short_price: opp.short_exchange_price,
             spread_percent: opp.spread_percent,
             qty,
+            available_size: opp.size,
             dry_run,
             timestamp: ts,
         };
@@ -151,24 +168,76 @@ impl DecisionEngine {
             return;
         }
 
+        let trade_id = uuid::Uuid::new_v4().to_string();
+        let redis_client = Arc::clone(&self.redis_client);
+
         // Execution is off the hot path — runs concurrently with the next evaluation.
-        tokio::spawn(execute_trade(opp, qty));
+        tokio::spawn(execute_trade(opp, qty, trade_id, redis_client));
     }
 }
 
-/// Sends both legs to their respective exchanges in parallel.
-/// Runs in its own task so HTTP latency never blocks the decision loop.
-async fn execute_trade(opp: SpreadOpportunity, qty: Decimal) {
+/// Sends both legs to their respective exchanges in parallel, collects order IDs,
+/// then publishes a PendingFill record for the fill-tracker service.
+async fn execute_trade(
+    opp: SpreadOpportunity,
+    qty: Decimal,
+    trade_id: String,
+    redis_client: Arc<RedisClient>,
+) {
     let (long_result, short_result) = tokio::join!(
         open_on_exchange(opp.long_exchange, opp.symbol.clone(), qty, Side::Buy),
         open_on_exchange(opp.short_exchange, opp.symbol.clone(), qty, Side::Sell),
     );
 
-    if let Err(e) = long_result {
-        warn!(exchange = %opp.long_exchange, symbol = %opp.symbol, error = %e, "Failed to open long");
-    }
-    if let Err(e) = short_result {
-        warn!(exchange = %opp.short_exchange, symbol = %opp.symbol, error = %e, "Failed to open short");
+    let long_order_id = match long_result {
+        Ok(id) => id,
+        Err(e) => {
+            warn!(exchange = %opp.long_exchange, symbol = %opp.symbol, error = %e, "Failed to open long");
+            return;
+        }
+    };
+    let short_order_id = match short_result {
+        Ok(id) => id,
+        Err(e) => {
+            warn!(exchange = %opp.short_exchange, symbol = %opp.symbol, error = %e, "Failed to open short");
+            return;
+        }
+    };
+
+    info!(
+        trade_id = %trade_id,
+        long_order_id = %long_order_id,
+        short_order_id = %short_order_id,
+        "Both legs placed — publishing PendingFill"
+    );
+
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+
+    let pending = PendingFill {
+        trade_id,
+        symbol: opp.symbol.clone(),
+        long_exchange: opp.long_exchange,
+        long_order_id,
+        short_exchange: opp.short_exchange,
+        short_order_id,
+        planned_spread_pct: opp.spread_percent,
+        planned_long_price: opp.long_exchange_price,
+        planned_short_price: opp.short_exchange_price,
+        qty,
+        dry_run: false,
+        timestamp: ts,
+    };
+
+    match redis_client.get_connection().await {
+        Ok(mut conn) => {
+            if let Err(e) = redis_client.publish_pending_fill(&mut conn, &pending).await {
+                warn!(error = %e, "Failed to publish PendingFill to Redis");
+            }
+        }
+        Err(e) => warn!(error = %e, "Failed to connect to Redis for PendingFill"),
     }
 }
 
@@ -177,7 +246,7 @@ async fn open_on_exchange(
     symbol: String,
     qty: Decimal,
     side: Side,
-) -> Result<(), String> {
+) -> Result<String, String> {
     let t = Instant::now();
     let result = match exchange {
         Exchange::Binance => BinanceClient.open_position(&symbol, qty, side).await,
