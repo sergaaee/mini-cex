@@ -21,10 +21,10 @@ dist: build
 	$(foreach svc,$(SERVICES),cp $(BIN_DIR)/$(svc) $(DIST)/$(svc);)
 
 docker-build: dist
-	docker compose build
+	sudo docker compose build
 
 up: dist
-	docker compose up -d
+	sudo docker compose up -d
 
 clean:
 	cargo clean
