@@ -87,6 +87,48 @@ pub struct FillResult {
     pub timestamp: u64,
 }
 
+/// Published by position-manager after placing close orders — links close order IDs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PendingClose {
+    pub trade_id: String,
+    pub symbol: String,
+    pub long_exchange: Exchange,
+    pub long_close_order_id: String,
+    pub short_exchange: Exchange,
+    pub short_close_order_id: String,
+    pub long_entry_price: Decimal,
+    pub short_entry_price: Decimal,
+    pub long_qty: Decimal,
+    pub short_qty: Decimal,
+    pub entry_spread_pct: Decimal,
+    pub dry_run: bool,
+    pub timestamp: u64,
+}
+
+/// Published by fill-tracker after both close legs are confirmed filled.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CloseResult {
+    pub trade_id: String,
+    pub symbol: String,
+    pub long_exchange: Exchange,
+    pub long_close_order_id: String,
+    pub long_close_avg_price: Decimal,
+    pub long_entry_price: Decimal,
+    pub long_qty: Decimal,
+    pub short_exchange: Exchange,
+    pub short_close_order_id: String,
+    pub short_close_avg_price: Decimal,
+    pub short_entry_price: Decimal,
+    pub short_qty: Decimal,
+    pub entry_spread_pct: Decimal,
+    pub close_spread_pct: Decimal,
+    pub realized_pnl: Decimal,
+    pub long_fee: Decimal,
+    pub short_fee: Decimal,
+    pub dry_run: bool,
+    pub timestamp: u64,
+}
+
 impl Display for SpreadOpportunity {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(

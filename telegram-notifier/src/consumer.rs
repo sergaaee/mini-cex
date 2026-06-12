@@ -1,5 +1,5 @@
 use anyhow::Result;
-use common::{Exchange, FillResult, TradeSignal};
+use common::{CloseResult, Exchange, FillResult, TradeSignal};
 use redis::streams::{StreamReadOptions, StreamReadReply};
 use redis::AsyncCommands;
 use rust_decimal::Decimal;
@@ -122,6 +122,88 @@ pub async fn consume_fills(redis_url: String, tx: mpsc::Sender<FillResult>) -> R
             }
             Err(e) => {
                 warn!(error = %e, "Error reading fills stream, retrying...");
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+            }
+        }
+    }
+}
+
+fn parse_close_result_entry(fields: &[(String, redis::Value)]) -> Option<CloseResult> {
+    let mut map: HashMap<String, String> = HashMap::new();
+    for (key, value) in fields {
+        if let redis::Value::BulkString(bytes) = value {
+            if let Ok(s) = String::from_utf8(bytes.clone()) {
+                map.insert(key.clone(), s);
+            }
+        }
+    }
+    Some(CloseResult {
+        trade_id: map.get("trade_id")?.clone(),
+        symbol: map.get("symbol")?.clone(),
+        long_exchange: parse_exchange(map.get("long_exchange")?)?,
+        long_close_order_id: map.get("long_close_order_id")?.clone(),
+        long_close_avg_price: Decimal::from_str(map.get("long_close_avg_price")?).ok()?,
+        long_entry_price: Decimal::from_str(map.get("long_entry_price")?).ok()?,
+        long_qty: Decimal::from_str(map.get("long_qty")?).ok()?,
+        short_exchange: parse_exchange(map.get("short_exchange")?)?,
+        short_close_order_id: map.get("short_close_order_id")?.clone(),
+        short_close_avg_price: Decimal::from_str(map.get("short_close_avg_price")?).ok()?,
+        short_entry_price: Decimal::from_str(map.get("short_entry_price")?).ok()?,
+        short_qty: Decimal::from_str(map.get("short_qty")?).ok()?,
+        entry_spread_pct: Decimal::from_str(map.get("entry_spread_pct")?).ok()?,
+        close_spread_pct: Decimal::from_str(map.get("close_spread_pct")?).ok()?,
+        realized_pnl: Decimal::from_str(map.get("realized_pnl")?).ok()?,
+        long_fee: Decimal::from_str(map.get("long_fee")?).ok()?,
+        short_fee: Decimal::from_str(map.get("short_fee")?).ok()?,
+        dry_run: map.get("dry_run").map(|v| v == "true").unwrap_or(false),
+        timestamp: map.get("timestamp")?.parse().unwrap_or(0),
+    })
+}
+
+pub async fn consume_close_results(redis_url: String, tx: mpsc::Sender<CloseResult>) -> Result<()> {
+    let client = redis::Client::open(redis_url.as_str())?;
+    let mut conn = client
+        .get_multiplexed_async_connection_with_config(&no_timeout_config())
+        .await?;
+
+    let mut last_id: String = redis::cmd("XREVRANGE")
+        .arg("close_results")
+        .arg("+")
+        .arg("-")
+        .arg("COUNT")
+        .arg(1usize)
+        .query_async::<redis::streams::StreamRangeReply>(&mut conn)
+        .await
+        .ok()
+        .and_then(|r| r.ids.into_iter().next())
+        .map(|e| e.id)
+        .unwrap_or_else(|| "0-0".to_string());
+
+    info!(cursor = %last_id, "Consuming close_results stream");
+
+    loop {
+        let opts = StreamReadOptions::default().block(5000).count(20);
+        let result: redis::RedisResult<StreamReadReply> =
+            conn.xread_options(&["close_results"], &[last_id.as_str()], &opts).await;
+
+        match result {
+            Ok(reply) => {
+                for stream in reply.keys {
+                    for entry in stream.ids {
+                        last_id = entry.id.clone();
+                        let fields: Vec<(String, redis::Value)> =
+                            entry.map.into_iter().collect();
+                        if let Some(cr) = parse_close_result_entry(&fields) {
+                            info!(trade_id = %cr.trade_id, "Received CloseResult");
+                            if tx.send(cr).await.is_err() {
+                                return Ok(());
+                            }
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                warn!(error = %e, "Error reading close_results stream, retrying...");
                 tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
             }
         }

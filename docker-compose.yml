@@ -84,6 +84,21 @@ services:
       - REDIS_URL=redis://redis:6379/
       - RUST_LOG=telegram_notifier=info
 
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mini_cex
+      POSTGRES_USER: mini_cex
+      POSTGRES_PASSWORD: mini_cex
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mini_cex"]
+      interval: 2s
+      retries: 10
+
   fill-tracker:
     build:
       context: .
@@ -100,6 +115,28 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379/
       - RUST_LOG=fill_tracker=info
+
+  position-manager:
+    build:
+      context: .
+      dockerfile: position-manager/Dockerfile
+    container_name: position-manager
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://redis:6379/
+      - DATABASE_URL=postgresql://mini_cex:mini_cex@postgres/mini_cex
+      - CLOSE_MIN_SPREAD_PCT=0.0
+      - BINANCE_TAKER_FEE=0.0225
+      - HIBACHI_TAKER_FEE=0.014
+      - POLL_INTERVAL_SECS=15
+      - RUST_LOG=position_manager=info
 
   prometheus:
     image: prom/prometheus:v2.53.4
@@ -137,5 +174,6 @@ services:
 
 volumes:
   redis-data:
+  postgres-data:
   prometheus-data:
   grafana-data:

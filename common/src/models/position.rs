@@ -152,7 +152,9 @@ struct HibachiPosition {
 pub trait PositionManagement {
     /// Places a market order. Returns the exchange-assigned order ID.
     async fn open_position(&self, symbol: &str, qty: Decimal, side: Side) -> Result<String, String>;
-    async fn close_position(&self, symbol: &str) -> Result<(), String>;
+    /// Places a closing market order. close_side is the opposite of how the position was opened.
+    /// Returns the exchange-assigned order ID of the close order.
+    async fn close_position(&self, symbol: &str, qty: Decimal, close_side: Side) -> Result<String, String>;
     async fn get_position(&self, symbol: &str) -> Result<Option<String>, String>;
 }
 
@@ -212,9 +214,54 @@ impl PositionManagement for BinanceClient {
         Ok(order_id)
     }
 
-    async fn close_position(&self, symbol: &str) -> Result<(), String> {
-        println!("Binance: closing position {}", symbol);
-        Ok(())
+    async fn close_position(&self, symbol: &str, qty: Decimal, close_side: Side) -> Result<String, String> {
+        println!("Binance: closing {} {} {}", close_side, qty, symbol);
+
+        let api_key = binance_api_key();
+        let secret = binance_secret();
+
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|e| e.to_string())?
+            .as_millis();
+
+        // To close a LONG position we SELL with positionSide=LONG.
+        // To close a SHORT position we BUY with positionSide=SHORT.
+        let (order_side, position_side) = match close_side {
+            Side::Sell => ("SELL", "LONG"),
+            Side::Buy => ("BUY", "SHORT"),
+            _ => panic!("Unknown close side"),
+        };
+
+        let query = format!(
+            "type=MARKET&symbol={}USDT&side={}&quantity={}&positionSide={}&newOrderRespType=RESULT&timestamp={}",
+            symbol, order_side, qty, position_side, timestamp
+        );
+
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).map_err(|e| e.to_string())?;
+        mac.update(query.as_bytes());
+        let signature = hex::encode(mac.finalize().into_bytes());
+
+        let url = format!(
+            "https://fapi.binance.com/fapi/v1/order?{}&signature={}",
+            query, signature
+        );
+
+        let resp = http_client()
+            .post(&url)
+            .header("X-MBX-APIKEY", api_key)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let text = resp.text().await.map_err(|e| e.to_string())?;
+        println!("binance close response = {:?}", text);
+
+        let order_id = serde_json::from_str::<BinanceOrderResponse>(&text)
+            .map(|r| r.order_id.to_string())
+            .map_err(|e| format!("Binance close order parse error: {} — body: {}", e, text))?;
+
+        Ok(order_id)
     }
 
     async fn get_position(&self, symbol: &str) -> Result<Option<String>, String> {
@@ -275,9 +322,9 @@ impl PositionManagement for BybitClient {
         println!("Bybit: opening {}, quantity: {} {}", side, qty, symbol);
         Ok("stub".to_string())
     }
-    async fn close_position(&self, symbol: &str) -> Result<(), String> {
+    async fn close_position(&self, symbol: &str, _qty: Decimal, _close_side: Side) -> Result<String, String> {
         println!("Bybit: closing position {}", symbol);
-        Ok(())
+        Ok("stub".to_string())
     }
     async fn get_position(&self, _symbol: &str) -> Result<Option<String>, String> {
         Ok(None)
@@ -454,24 +501,125 @@ impl PositionManagement for HibachiClient {
         Ok(order_id)
     }
 
-    async fn close_position(&self, symbol: &str) -> Result<(), String> {
-        println!("Hibachi: closing position {}", symbol);
-        Ok(())
-    }
+    async fn close_position(&self, symbol: &str, qty: Decimal, close_side: Side) -> Result<String, String> {
+        println!("Hibachi: closing {} {} {}", close_side, qty, symbol);
 
-    async fn get_position(&self, _symbol: &str) -> Result<Option<String>, String> {
+        const URL: &str = "https://api.hibachi.xyz/trade/order";
+
         let account_id = hibachi_client_id();
-        let url = format!("https://api.hibachi.xyz/trade/orders?accountId={}", account_id);
+        let private_key = hibachi_private_key();
+        let api_key = hibachi_api_key();
 
-        let resp = http_client()
-            .get(&url)
-            .send()
-            .await
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
             .map_err(|e| e.to_string())?
-            .json::<Vec<BinancePosition>>()
+            .as_millis() as u64;
+
+        // Closing a SHORT means we BUY back (BID). Closing a LONG means we SELL (ASK).
+        let (body_side, payload_side) = match close_side {
+            Side::Buy => ("BID", 1u32),
+            Side::Sell => ("ASK", 0u32),
+            _ => panic!("Unknown close side"),
+        };
+
+        let contract_id: u32 = match symbol {
+            "BTC" => 2,
+            "ETH" => 1,
+            "SOL" => 3,
+            "XRP" => 24,
+            "BNB" => 30,
+            "HYPE" => 49,
+            "SUI" => 23,
+            _ => panic!("Unknown symbol!"),
+        };
+
+        let payload = build_order_payload(
+            symbol,
+            nonce,
+            contract_id,
+            qty,
+            payload_side,
+            Decimal::from_str_exact("0.0005").unwrap(),
+            None,
+        );
+
+        let signature = sign_payload(&payload, private_key).map_err(|e| e.to_string())?;
+
+        let body = json!({
+            "symbol": format!("{}/USDT-P", symbol),
+            "accountId": account_id.parse::<u64>().unwrap_or(0),
+            "side": body_side,
+            "orderType": "MARKET",
+            "nonce": nonce,
+            "quantity": qty.to_string(),
+            "maxFeesPercent": "0.00050000",
+            "signature": signature
+        });
+
+        let response = http_client()
+            .post(URL)
+            .header("Authorization", api_key)
+            .json(&body)
+            .send()
             .await
             .map_err(|e| e.to_string())?;
 
+        let text = response.text().await.map_err(|e| e.to_string())?;
+        println!("hibachi close response = {}", text);
+
+        let order_id = serde_json::from_str::<serde_json::Value>(&text)
+            .ok()
+            .and_then(|v| {
+                v.get("orderId").map(|id| match id {
+                    serde_json::Value::Number(n) => n.to_string(),
+                    serde_json::Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                })
+            })
+            .ok_or_else(|| format!("Hibachi close: missing orderId in response: {}", text))?;
+
+        Ok(order_id)
+    }
+
+    async fn get_position(&self, symbol: &str) -> Result<Option<String>, String> {
+        let account_id = hibachi_client_id();
+        let api_key = hibachi_api_key();
+        let url = format!(
+            "https://api.hibachi.xyz/trade/account/info?accountId={}",
+            account_id
+        );
+
+        #[derive(Deserialize)]
+        struct AccountInfo {
+            positions: Vec<HibachiAccountPosition>,
+        }
+        #[derive(Deserialize)]
+        struct HibachiAccountPosition {
+            direction: String,
+            symbol: String,
+            quantity: String,
+        }
+
+        let resp = http_client()
+            .get(&url)
+            .header("Authorization", api_key)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?
+            .json::<AccountInfo>()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let hibachi_symbol = format!("{}/USDT-P", symbol);
+        for pos in resp.positions {
+            if pos.symbol == hibachi_symbol {
+                let qty = Decimal::from_str(&pos.quantity).unwrap_or(Decimal::ZERO);
+                if qty.is_zero() {
+                    return Ok(None);
+                }
+                return Ok(Some(pos.direction)); // "Long" or "Short"
+            }
+        }
         Ok(None)
     }
 }
@@ -487,9 +635,9 @@ impl PositionManagement for BackpackClient {
         println!("Backpack: opening {}, quantity: {} {}", side, qty, symbol);
         Ok("stub".to_string())
     }
-    async fn close_position(&self, symbol: &str) -> Result<(), String> {
+    async fn close_position(&self, symbol: &str, _qty: Decimal, _close_side: Side) -> Result<String, String> {
         println!("Backpack: closing position {}", symbol);
-        Ok(())
+        Ok("stub".to_string())
     }
     async fn get_position(&self, symbol: &str) -> Result<Option<String>, String> {
         let base_url = BACKPACK_API_BASE_URL.to_string();
@@ -565,9 +713,9 @@ impl PositionManagement for AsterClient {
         Ok(order_id)
     }
 
-    async fn close_position(&self, symbol: &str) -> Result<(), String> {
+    async fn close_position(&self, symbol: &str, _qty: Decimal, _close_side: Side) -> Result<String, String> {
         println!("Aster: closing position {}", symbol);
-        Ok(())
+        Ok("stub".to_string())
     }
 
     async fn get_position(&self, symbol: &str) -> Result<Option<String>, String> {

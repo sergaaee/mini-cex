@@ -1,5 +1,5 @@
 use anyhow::Result;
-use common::{FillResult, PendingFill, RedisClient};
+use common::{CloseResult, FillResult, PendingClose, PendingFill, RedisClient};
 use redis::streams::{StreamReadOptions, StreamReadReply};
 use redis::AsyncCommands;
 use rust_decimal::Decimal;
@@ -13,7 +13,7 @@ mod binance_ws;
 mod hibachi_ws;
 mod tracker;
 
-use tracker::FillTracker;
+use tracker::{FillTracker, TrackerOutput};
 
 fn parse_exchange(s: &str) -> Option<common::Exchange> {
     match s {
@@ -29,14 +29,7 @@ fn parse_exchange(s: &str) -> Option<common::Exchange> {
 }
 
 fn parse_pending_fill(fields: &[(String, redis::Value)]) -> Option<PendingFill> {
-    let mut map: HashMap<String, String> = HashMap::new();
-    for (key, value) in fields {
-        if let redis::Value::BulkString(bytes) = value {
-            if let Ok(s) = String::from_utf8(bytes.clone()) {
-                map.insert(key.clone(), s);
-            }
-        }
-    }
+    let map = to_map(fields);
     Some(PendingFill {
         trade_id: map.get("trade_id")?.clone(),
         symbol: map.get("symbol")?.clone(),
@@ -51,6 +44,37 @@ fn parse_pending_fill(fields: &[(String, redis::Value)]) -> Option<PendingFill> 
         dry_run: map.get("dry_run").map(|v| v == "true").unwrap_or(false),
         timestamp: map.get("timestamp")?.parse().unwrap_or(0),
     })
+}
+
+fn parse_pending_close(fields: &[(String, redis::Value)]) -> Option<PendingClose> {
+    let map = to_map(fields);
+    Some(PendingClose {
+        trade_id: map.get("trade_id")?.clone(),
+        symbol: map.get("symbol")?.clone(),
+        long_exchange: parse_exchange(map.get("long_exchange")?)?,
+        long_close_order_id: map.get("long_close_order_id")?.clone(),
+        short_exchange: parse_exchange(map.get("short_exchange")?)?,
+        short_close_order_id: map.get("short_close_order_id")?.clone(),
+        long_entry_price: Decimal::from_str(map.get("long_entry_price")?).ok()?,
+        short_entry_price: Decimal::from_str(map.get("short_entry_price")?).ok()?,
+        long_qty: Decimal::from_str(map.get("long_qty")?).unwrap_or(Decimal::ZERO),
+        short_qty: Decimal::from_str(map.get("short_qty")?).unwrap_or(Decimal::ZERO),
+        entry_spread_pct: Decimal::from_str(map.get("entry_spread_pct")?).ok()?,
+        dry_run: map.get("dry_run").map(|v| v == "true").unwrap_or(false),
+        timestamp: map.get("timestamp")?.parse().unwrap_or(0),
+    })
+}
+
+fn to_map(fields: &[(String, redis::Value)]) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    for (key, value) in fields {
+        if let redis::Value::BulkString(bytes) = value {
+            if let Ok(s) = String::from_utf8(bytes.clone()) {
+                map.insert(key.clone(), s);
+            }
+        }
+    }
+    map
 }
 
 fn no_timeout_config() -> redis::AsyncConnectionConfig {
@@ -107,29 +131,87 @@ async fn consume_pending_fills(redis_url: String, tracker: Arc<Mutex<FillTracker
     }
 }
 
-async fn fill_publisher_worker(redis_url: String, mut rx: mpsc::Receiver<FillResult>) {
+async fn consume_pending_closes(redis_url: String, tracker: Arc<Mutex<FillTracker>>) -> Result<()> {
+    let client = redis::Client::open(redis_url.as_str())?;
+    let mut conn = client
+        .get_multiplexed_async_connection_with_config(&no_timeout_config())
+        .await?;
+
+    let mut last_id: String = redis::cmd("XREVRANGE")
+        .arg("pending_closes")
+        .arg("+")
+        .arg("-")
+        .arg("COUNT")
+        .arg(1usize)
+        .query_async::<redis::streams::StreamRangeReply>(&mut conn)
+        .await
+        .ok()
+        .and_then(|r| r.ids.into_iter().next())
+        .map(|e| e.id)
+        .unwrap_or_else(|| "0-0".to_string());
+
+    info!(cursor = %last_id, "Consuming pending_closes stream");
+
+    loop {
+        let opts = StreamReadOptions::default().block(1000).count(100);
+        let result: redis::RedisResult<StreamReadReply> =
+            conn.xread_options(&["pending_closes"], &[last_id.as_str()], &opts).await;
+
+        match result {
+            Ok(reply) => {
+                for stream in reply.keys {
+                    for entry in stream.ids {
+                        last_id = entry.id.clone();
+                        let fields: Vec<(String, redis::Value)> =
+                            entry.map.into_iter().collect();
+                        if let Some(pc) = parse_pending_close(&fields) {
+                            info!(trade_id = %pc.trade_id, "Received PendingClose");
+                            tracker.lock().unwrap().add_pending_close(pc);
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                warn!(error = %e, "Error reading pending_closes, retrying...");
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+            }
+        }
+    }
+}
+
+async fn output_publisher_worker(redis_url: String, mut rx: mpsc::Receiver<TrackerOutput>) {
     let redis_client = RedisClient::from_url(&redis_url);
     let mut conn = loop {
         match redis_client.get_connection().await {
             Ok(c) => break c,
             Err(e) => {
-                error!("Fill publisher: failed to connect to Redis: {}", e);
+                error!("Publisher: failed to connect to Redis: {}", e);
                 tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             }
         }
     };
 
-    info!("Fill publisher worker started");
+    info!("Output publisher worker started");
 
-    while let Some(result) = rx.recv().await {
-        match redis_client.publish_fill_result(&mut conn, &result).await {
-            Ok(_) => info!(trade_id = %result.trade_id, "Published FillResult"),
-            Err(e) => {
-                warn!(error = %e, "Failed to publish FillResult, reconnecting...");
-                match redis_client.get_connection().await {
-                    Ok(new_conn) => conn = new_conn,
-                    Err(e) => error!("Fill publisher: reconnect failed: {}", e),
-                }
+    while let Some(output) = rx.recv().await {
+        let result = match &output {
+            TrackerOutput::Fill(fr) => {
+                redis_client.publish_fill_result(&mut conn, fr).await
+                    .map(|_| info!(trade_id = %fr.trade_id, "Published FillResult"))
+                    .map_err(|e| e.to_string())
+            }
+            TrackerOutput::Close(cr) => {
+                redis_client.publish_close_result(&mut conn, cr).await
+                    .map(|_| info!(trade_id = %cr.trade_id, "Published CloseResult"))
+                    .map_err(|e| e.to_string())
+            }
+        };
+
+        if let Err(e) = result {
+            warn!(error = %e, "Failed to publish, reconnecting...");
+            match redis_client.get_connection().await {
+                Ok(new_conn) => conn = new_conn,
+                Err(e) => error!("Publisher: reconnect failed: {}", e),
             }
         }
     }
@@ -162,10 +244,11 @@ async fn main() -> Result<()> {
 
     info!(redis_url = %redis_url, "Starting fill-tracker");
 
-    let (fill_tx, fill_rx) = mpsc::channel::<FillResult>(64);
-    let tracker = Arc::new(Mutex::new(FillTracker::new(fill_tx)));
+    let (output_tx, output_rx) = mpsc::channel::<TrackerOutput>(64);
+    let tracker = Arc::new(Mutex::new(FillTracker::new(output_tx)));
 
     tokio::spawn(consume_pending_fills(redis_url.clone(), Arc::clone(&tracker)));
+    tokio::spawn(consume_pending_closes(redis_url.clone(), Arc::clone(&tracker)));
     tokio::spawn(binance_ws::run(Arc::clone(&tracker), binance_api_key));
     tokio::spawn(hibachi_ws::run(
         Arc::clone(&tracker),
@@ -173,7 +256,7 @@ async fn main() -> Result<()> {
         hibachi_api_key,
     ));
 
-    fill_publisher_worker(redis_url, fill_rx).await;
+    output_publisher_worker(redis_url, output_rx).await;
 
     Ok(())
 }

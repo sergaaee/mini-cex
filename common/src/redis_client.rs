@@ -1,6 +1,6 @@
 use crate::errors::price::PriceError;
 use crate::models::ticker::Quote;
-use crate::{Exchange, FillResult, PendingFill, RedisClient, SpreadOpportunity, TradeSignal};
+use crate::{CloseResult, Exchange, FillResult, PendingClose, PendingFill, RedisClient, SpreadOpportunity, TradeSignal};
 use redis::AsyncCommands;
 use redis::streams::StreamMaxlen;
 
@@ -165,6 +165,70 @@ impl RedisClient {
         redis::cmd("XADD")
             .arg("pending_fills")
             .arg(StreamMaxlen::Approx(1000))
+            .arg("*")
+            .arg(items)
+            .query_async(conn)
+            .await
+    }
+
+    pub async fn publish_pending_close(
+        &self,
+        conn: &mut redis::aio::MultiplexedConnection,
+        close: &PendingClose,
+    ) -> redis::RedisResult<String> {
+        let items: &[(&str, String)] = &[
+            ("trade_id", close.trade_id.clone()),
+            ("symbol", close.symbol.clone()),
+            ("long_exchange", close.long_exchange.to_string()),
+            ("long_close_order_id", close.long_close_order_id.clone()),
+            ("short_exchange", close.short_exchange.to_string()),
+            ("short_close_order_id", close.short_close_order_id.clone()),
+            ("long_entry_price", close.long_entry_price.to_string()),
+            ("short_entry_price", close.short_entry_price.to_string()),
+            ("long_qty", close.long_qty.to_string()),
+            ("short_qty", close.short_qty.to_string()),
+            ("entry_spread_pct", close.entry_spread_pct.to_string()),
+            ("dry_run", close.dry_run.to_string()),
+            ("timestamp", close.timestamp.to_string()),
+        ];
+        redis::cmd("XADD")
+            .arg("pending_closes")
+            .arg(StreamMaxlen::Approx(1000))
+            .arg("*")
+            .arg(items)
+            .query_async(conn)
+            .await
+    }
+
+    pub async fn publish_close_result(
+        &self,
+        conn: &mut redis::aio::MultiplexedConnection,
+        result: &CloseResult,
+    ) -> redis::RedisResult<String> {
+        let items: &[(&str, String)] = &[
+            ("trade_id", result.trade_id.clone()),
+            ("symbol", result.symbol.clone()),
+            ("long_exchange", result.long_exchange.to_string()),
+            ("long_close_order_id", result.long_close_order_id.clone()),
+            ("long_close_avg_price", result.long_close_avg_price.to_string()),
+            ("long_entry_price", result.long_entry_price.to_string()),
+            ("long_qty", result.long_qty.to_string()),
+            ("short_exchange", result.short_exchange.to_string()),
+            ("short_close_order_id", result.short_close_order_id.clone()),
+            ("short_close_avg_price", result.short_close_avg_price.to_string()),
+            ("short_entry_price", result.short_entry_price.to_string()),
+            ("short_qty", result.short_qty.to_string()),
+            ("entry_spread_pct", result.entry_spread_pct.to_string()),
+            ("close_spread_pct", result.close_spread_pct.to_string()),
+            ("realized_pnl", result.realized_pnl.to_string()),
+            ("long_fee", result.long_fee.to_string()),
+            ("short_fee", result.short_fee.to_string()),
+            ("dry_run", result.dry_run.to_string()),
+            ("timestamp", result.timestamp.to_string()),
+        ];
+        redis::cmd("XADD")
+            .arg("close_results")
+            .arg(StreamMaxlen::Approx(500))
             .arg("*")
             .arg(items)
             .query_async(conn)

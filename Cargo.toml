@@ -1,5 +1,5 @@
 [workspace]
-members = ["aggregator", "common", "spread-calculator", "execution-engine", "telegram-notifier", "fill-tracker"]
+members = ["aggregator", "common", "spread-calculator", "execution-engine", "telegram-notifier", "fill-tracker", "position-manager"]
 resolver = "2"
 
 [profile.release]

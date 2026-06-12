@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use common::{FillResult, TradeSignal};
+use common::{CloseResult, FillResult, TradeSignal};
 use reqwest::Client;
 use rust_decimal::prelude::ToPrimitive;
 use serde_json::json;
@@ -28,6 +28,11 @@ impl TelegramNotifier {
 
     pub async fn send_fill_result(&self, fill: &FillResult) -> Result<()> {
         let text = format_fill_result(fill);
+        self.send(&text).await
+    }
+
+    pub async fn send_close_result(&self, close: &CloseResult) -> Result<()> {
+        let text = format_close_result(close);
         self.send(&text).await
     }
 
@@ -122,6 +127,47 @@ fn format_fill_result(fill: &FillResult) -> String {
         short_qty = fill.short_filled_qty,
         planned = fill.planned_spread_pct,
         realized = fill.realized_spread_pct,
+        datetime = datetime,
+    )
+}
+
+fn format_close_result(close: &CloseResult) -> String {
+    let header = if close.dry_run {
+        "🔍 <b>DRY RUN — Position Closed</b>"
+    } else {
+        "🔒 <b>POSITION CLOSED</b>"
+    };
+
+    let long_pnl = (close.long_close_avg_price - close.long_entry_price) * close.long_qty - close.long_fee;
+    let short_pnl = (close.short_entry_price - close.short_close_avg_price) * close.short_qty - close.short_fee;
+    let total_fees = close.long_fee + close.short_fee;
+    let datetime = humanize_ts(close.timestamp);
+
+    format!(
+        "{header}\n\
+        \n\
+        Symbol:    <b>{symbol}</b>\n\
+        Long:      <b>{long_ex}</b>\n\
+          entry <b>${long_entry:.2}</b>  →  close <b>${long_close:.2}</b>  PnL: <b>{long_pnl:+.4}</b>\n\
+        Short:     <b>{short_ex}</b>\n\
+          entry <b>${short_entry:.2}</b>  →  close <b>${short_close:.2}</b>  PnL: <b>{short_pnl:+.4}</b>\n\
+        Realized:  <b>{pnl:+.6} USDT</b>  (fees: {fees:.6})\n\
+        Spread:    entry <b>{entry_spread:+.3}%</b>  →  close <b>{close_spread:+.3}%</b>\n\
+        Time:      {datetime}",
+        header = header,
+        symbol = close.symbol,
+        long_ex = close.long_exchange,
+        long_entry = close.long_entry_price,
+        long_close = close.long_close_avg_price,
+        long_pnl = long_pnl,
+        short_ex = close.short_exchange,
+        short_entry = close.short_entry_price,
+        short_close = close.short_close_avg_price,
+        short_pnl = short_pnl,
+        pnl = close.realized_pnl,
+        fees = total_fees,
+        entry_spread = close.entry_spread_pct,
+        close_spread = close.close_spread_pct,
         datetime = datetime,
     )
 }
