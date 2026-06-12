@@ -58,7 +58,7 @@ async fn run_once(
     api_key: &str,
 ) -> anyhow::Result<()> {
     let url = format!(
-        "wss://data-api.hibachi.xyz/ws/account?accountId={}",
+        "wss://api.hibachi.xyz/ws/account?accountId={}",
         account_id
     );
 
