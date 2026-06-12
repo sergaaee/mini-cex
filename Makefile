@@ -7,7 +7,7 @@ ifeq ($(UNAME),Linux)
     BUILD_CMD := cargo build --release
     BIN_DIR   := target/release
 else
-    BUILD_CMD := cross build --release --target $(TARGET)
+    BUILD_CMD := cargo zigbuild --release --target $(TARGET)
     BIN_DIR   := target/$(TARGET)/release
 endif
 
@@ -21,10 +21,10 @@ dist: build
 	$(foreach svc,$(SERVICES),cp $(BIN_DIR)/$(svc) $(DIST)/$(svc);)
 
 docker-build: dist
-	docker-compose build
+	docker compose build
 
 up: dist
-	docker-compose up -d
+	docker compose up -d
 
 clean:
 	cargo clean
