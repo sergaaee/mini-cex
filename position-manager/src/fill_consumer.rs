@@ -65,20 +65,7 @@ pub async fn consume_fills(
         .get_multiplexed_async_connection_with_config(&no_timeout_config())
         .await?;
 
-    // Start from current tail — only track fills from now on
-    let mut last_id: String = redis::cmd("XREVRANGE")
-        .arg("fills")
-        .arg("+")
-        .arg("-")
-        .arg("COUNT")
-        .arg(1usize)
-        .query_async::<redis::streams::StreamRangeReply>(&mut conn)
-        .await
-        .ok()
-        .and_then(|r| r.ids.into_iter().next())
-        .map(|e| e.id)
-        .unwrap_or_else(|| "0-0".to_string());
-
+    let mut last_id = "0-0".to_string();
     info!(cursor = %last_id, "Consuming fills stream for position tracking");
 
     loop {

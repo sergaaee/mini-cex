@@ -108,12 +108,12 @@ pub async fn run_close_monitor(
                         (long_quote.bid - short_quote.ask) / short_quote.ask * Decimal::from(100u32)
                     };
 
-                    if closing_spread <= close_min_spread_pct {
+                    if closing_spread >= close_min_spread_pct {
                         info!(
                             trade_id = %pos.trade_id,
                             symbol = %pos.symbol,
                             closing_spread = %closing_spread.round_dp(4),
-                            "Close condition met — initiating close"
+                            "Close condition met — spread captured, initiating close"
                         );
 
                         let pool_clone = Arc::clone(&pool);
