@@ -69,8 +69,8 @@ async fn main() -> anyhow::Result<()> {
 
                         if positions.contains(sym.as_ref()) {
                             if let Some(spread) = spread {
-                                // 0.01%
-                                if spread < dec!(0.01) {
+                                // 0.03%
+                                if spread < dec!(0.03) {
                                     positions.remove(sym.as_ref());
                                     let current_ts = std::time::SystemTime::now()
                                         .duration_since(std::time::UNIX_EPOCH)
