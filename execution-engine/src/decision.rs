@@ -51,10 +51,6 @@ impl DecisionEngine {
     pub fn evaluate(&mut self, opp: SpreadOpportunity) {
         SPREADS_RECEIVED.with_label_values(&[&opp.symbol]).inc();
 
-        if opp.symbol.as_str() == "BNB" {
-            return;
-        }
-
         // Reject opportunities that are already stale by the time we process them
         let now_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -127,7 +123,7 @@ impl DecisionEngine {
         } else if opp.symbol.as_str() == "ETH" {
             qty = qty.min(Decimal::from_f64(0.013).unwrap());
         }
-        let dry_run = self.dry_run;
+        let mut dry_run = self.dry_run;
         let ts = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_millis() as u64)
@@ -152,6 +148,15 @@ impl DecisionEngine {
                 &opp.short_exchange.to_string(),
             ])
             .inc();
+
+        if opp.symbol.as_str() == "BNB"
+            || opp.long_exchange == Exchange::Backpack
+            || opp.short_exchange == Exchange::Backpack
+            || opp.long_exchange == Exchange::OKX
+            || opp.short_exchange == Exchange::OKX
+        {
+            dry_run = true;
+        }
 
         let signal = TradeSignal {
             symbol: opp.symbol.clone(),
