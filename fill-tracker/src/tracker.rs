@@ -259,8 +259,13 @@ impl FillTracker {
                 .and_then(|s| s.parse::<Decimal>().ok())
                 .unwrap_or(Decimal::new(5, 4));
 
-            let long_fee_rate = exchange_fee_rate(ctx.long_exchange, binance_fee_rate, hibachi_fee_rate);
-            let short_fee_rate = exchange_fee_rate(ctx.short_exchange, binance_fee_rate, hibachi_fee_rate);
+            let backpack_fee_rate = std::env::var("BACKPACK_TAKER_FEE")
+                .ok()
+                .and_then(|s| s.parse::<Decimal>().ok())
+                .unwrap_or(Decimal::new(5, 4));
+
+            let long_fee_rate = exchange_fee_rate(ctx.long_exchange, binance_fee_rate, hibachi_fee_rate, backpack_fee_rate,);
+            let short_fee_rate = exchange_fee_rate(ctx.short_exchange, binance_fee_rate, hibachi_fee_rate, backpack_fee_rate,);
 
             let long_fee = (ctx.long_entry_price + lf.avg_price) * ctx.long_qty * long_fee_rate;
             let short_fee = (ctx.short_entry_price + sf.avg_price) * ctx.short_qty * short_fee_rate;
@@ -315,10 +320,11 @@ impl FillTracker {
     }
 }
 
-fn exchange_fee_rate(exchange: Exchange, binance: Decimal, hibachi: Decimal) -> Decimal {
+fn exchange_fee_rate(exchange: Exchange, binance: Decimal, hibachi: Decimal, backpack: Decimal) -> Decimal {
     match exchange {
         Exchange::Binance => binance,
         Exchange::Hibachi => hibachi,
+        Exchange::Backpack => backpack,
         _ => hibachi,
     }
 }

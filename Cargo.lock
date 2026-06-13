@@ -415,11 +415,14 @@ dependencies = [
  "base64ct",
  "bpx-api-types",
  "ed25519-dalek",
+ "futures-util",
  "reqwest 0.12.24",
  "serde",
  "serde_json",
  "serde_qs",
  "thiserror 2.0.17",
+ "tokio",
+ "tokio-tungstenite",
  "tracing",
  "url",
 ]
@@ -549,8 +552,10 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "axum 0.6.20",
+ "base64ct",
  "bpx-api-client",
  "dotenvy",
+ "ed25519-dalek",
  "hex",
  "hmac 0.13.0",
  "redis",
@@ -964,6 +969,7 @@ name = "fill-tracker"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bpx-api-client",
  "common",
  "dotenvy",
  "futures-util",
@@ -3616,8 +3622,12 @@ dependencies = [
  "futures-util",
  "log",
  "native-tls",
+ "rustls",
+ "rustls-native-certs",
+ "rustls-pki-types",
  "tokio",
  "tokio-native-tls",
+ "tokio-rustls",
  "tungstenite",
 ]
 
@@ -3841,6 +3851,8 @@ dependencies = [
  "log",
  "native-tls",
  "rand 0.9.2",
+ "rustls",
+ "rustls-pki-types",
  "sha1",
  "thiserror 2.0.17",
  "utf-8",

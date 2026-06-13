@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
+mod backpack_ws;
 mod binance_ws;
 mod hibachi_ws;
 mod tracker;
@@ -242,6 +243,9 @@ async fn main() -> Result<()> {
     let hibachi_api_key = std::env::var("HIBACHI_API_KEY")
         .expect("HIBACHI_API_KEY env var required");
 
+    let backpack_secret = std::env::var("SECRET_KEY_BP")
+        .expect("SECRET_KEY_BP env var required");
+
     info!(redis_url = %redis_url, "Starting fill-tracker");
 
     let (output_tx, output_rx) = mpsc::channel::<TrackerOutput>(64);
@@ -255,6 +259,7 @@ async fn main() -> Result<()> {
         hibachi_account_id,
         hibachi_api_key,
     ));
+    tokio::spawn(backpack_ws::run(Arc::clone(&tracker), backpack_secret));
 
     output_publisher_worker(redis_url, output_rx).await;
 

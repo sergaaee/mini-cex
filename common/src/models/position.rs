@@ -1,6 +1,7 @@
 use crate::models::order::Side;
 use async_trait::async_trait;
-use bpx_api_client::{BpxClient, BACKPACK_API_BASE_URL};
+use base64ct::{Base64, Encoding};
+use ed25519_dalek::{Signer, SigningKey};
 use hex;
 use hmac::{Hmac, KeyInit, Mac};
 use reqwest::Client;
@@ -12,6 +13,7 @@ use serde::Deserialize;
 use serde_json::json;
 use sha2::Digest;
 use sha2::Sha256;
+use std::collections::BTreeMap;
 use std::str::FromStr;
 use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -88,6 +90,25 @@ fn hibachi_api_key() -> &'static str {
     })
 }
 
+static BACKPACK_SIGNING_KEY: OnceLock<SigningKey> = OnceLock::new();
+static BACKPACK_API_KEY: OnceLock<String> = OnceLock::new();
+
+fn backpack_signing_key() -> &'static SigningKey {
+    BACKPACK_SIGNING_KEY.get_or_init(|| {
+        let secret = std::env::var("SECRET_KEY_BP").expect("Missing SECRET_KEY_BP");
+        let bytes = Base64::decode_vec(&secret).expect("Invalid base64 SECRET_KEY_BP");
+        let arr: [u8; 32] = bytes.try_into().expect("SECRET_KEY_BP must be 32 bytes");
+        SigningKey::from_bytes(&arr)
+    })
+}
+
+fn backpack_api_key() -> &'static str {
+    BACKPACK_API_KEY.get_or_init(|| {
+        let vk = backpack_signing_key().verifying_key();
+        Base64::encode_string(&vk.to_bytes())
+    })
+}
+
 // ── Warmup ───────────────────────────────────────────────────────────────────
 
 /// Fires a cheap unauthenticated GET to each exchange's public ping endpoint so
@@ -105,6 +126,8 @@ pub async fn warmup_connections() {
     let _ = hibachi_client_id();
     let _ = hibachi_private_key();
     let _ = hibachi_api_key();
+    let _ = backpack_signing_key();
+    let _ = backpack_api_key();
 
     // Prime secp256k1 context.
     let _ = secp();
@@ -114,6 +137,7 @@ pub async fn warmup_connections() {
         client.get("https://fapi.binance.com/fapi/v1/ping").send(),
         client.get("https://fapi.asterdex.com/fapi/v1/ping").send(),
         client.get("https://api.hibachi.xyz/").send(),
+        client.get("https://api.backpack.exchange/api/v1/status").send(),
     );
 }
 
@@ -626,33 +650,172 @@ impl PositionManagement for HibachiClient {
 
 // ── Backpack ─────────────────────────────────────────────────────────────────
 
+const BP_BASE: &str = "https://api.backpack.exchange";
+const BP_WINDOW: u32 = 5000;
+
+#[derive(Deserialize)]
+struct BpOrderResponse {
+    id: String,
+}
+
+#[derive(Deserialize)]
+struct BpFuturePosition {
+    symbol: String,
+    #[serde(rename = "netQuantity")]
+    net_quantity: String,
+}
+
+fn bp_now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64
+}
+
+/// Builds the signee string and returns (signee, timestamp).
+/// body_json must be a JSON object; keys are sorted alphabetically.
+fn bp_signee(instruction: &str, body_json: Option<&serde_json::Value>, timestamp: u64) -> String {
+    let mut s = format!("instruction={instruction}");
+    if let Some(serde_json::Value::Object(map)) = body_json {
+        let sorted: BTreeMap<&str, &serde_json::Value> =
+            map.iter().map(|(k, v)| (k.as_str(), v)).collect();
+        for (k, v) in sorted {
+            let vs = v.to_string();
+            let vs = vs.trim_matches('"');
+            s.push_str(&format!("&{k}={vs}"));
+        }
+    }
+    s.push_str(&format!("&timestamp={timestamp}&window={BP_WINDOW}"));
+    s
+}
+
+fn bp_sign(signee: &str) -> String {
+    let sig = backpack_signing_key().sign(signee.as_bytes());
+    Base64::encode_string(&sig.to_bytes())
+}
+
 #[derive(Debug, Clone)]
 pub struct BackpackClient;
 
 #[async_trait]
 impl PositionManagement for BackpackClient {
     async fn open_position(&self, symbol: &str, qty: Decimal, side: Side) -> Result<String, String> {
-        println!("Backpack: opening {}, quantity: {} {}", side, qty, symbol);
-        Ok("stub".to_string())
-    }
-    async fn close_position(&self, symbol: &str, _qty: Decimal, _close_side: Side) -> Result<String, String> {
-        println!("Backpack: closing position {}", symbol);
-        Ok("stub".to_string())
-    }
-    async fn get_position(&self, symbol: &str) -> Result<Option<String>, String> {
-        let base_url = BACKPACK_API_BASE_URL.to_string();
-        let secret = std::env::var("SECRET_KEY_BP").map_err(|_| "Missing Backpack secret")?;
-        let headers = None;
+        println!("Backpack: opening {side}, quantity: {qty} {symbol}");
 
-        let client = BpxClient::init(base_url, secret.as_ref(), headers)
-            .expect("Failed to initialize Backpack API client");
+        let symbol_bp = format!("{symbol}_USDC_PERP");
+        let side_str = match side {
+            Side::Buy => "Bid",
+            Side::Sell => "Ask",
+            _ => panic!("Unknown side"),
+        };
 
-        match client
-            .get_open_orders(Some(format!("{symbol}_USDC_PERP").as_ref()))
+        let body = json!({
+            "orderType": "Market",
+            "quantity": qty.to_string(),
+            "side": side_str,
+            "symbol": symbol_bp,
+        });
+
+        let ts = bp_now_ms();
+        let signee = bp_signee("orderExecute", Some(&body), ts);
+        let signature = bp_sign(&signee);
+
+        let url = format!("{BP_BASE}/api/v1/order");
+        let resp = http_client()
+            .post(&url)
+            .header("X-API-Key", backpack_api_key())
+            .header("X-Signature", &signature)
+            .header("X-Timestamp", ts.to_string())
+            .header("X-Window", BP_WINDOW.to_string())
+            .header("Content-Type", "application/json; charset=utf-8")
+            .json(&body)
+            .send()
             .await
-        {
-            Ok(orders) => println!("Open Orders: {:?}", orders),
-            Err(err) => tracing::error!("Error: {:?}", err),
+            .map_err(|e| e.to_string())?;
+
+        let text = resp.text().await.map_err(|e| e.to_string())?;
+        println!("backpack open response = {text}");
+
+        serde_json::from_str::<BpOrderResponse>(&text)
+            .map(|r| r.id)
+            .map_err(|e| format!("Backpack order parse error: {e} — body: {text}"))
+    }
+
+    async fn close_position(&self, symbol: &str, qty: Decimal, close_side: Side) -> Result<String, String> {
+        println!("Backpack: closing {close_side} {qty} {symbol}");
+
+        let symbol_bp = format!("{symbol}_USDC_PERP");
+        let side_str = match close_side {
+            Side::Sell => "Ask",
+            Side::Buy => "Bid",
+            _ => panic!("Unknown close side"),
+        };
+
+        let body = json!({
+            "orderType": "Market",
+            "quantity": qty.to_string(),
+            "reduceOnly": true,
+            "side": side_str,
+            "symbol": symbol_bp,
+        });
+
+        let ts = bp_now_ms();
+        let signee = bp_signee("orderExecute", Some(&body), ts);
+        let signature = bp_sign(&signee);
+
+        let url = format!("{BP_BASE}/api/v1/order");
+        let resp = http_client()
+            .post(&url)
+            .header("X-API-Key", backpack_api_key())
+            .header("X-Signature", &signature)
+            .header("X-Timestamp", ts.to_string())
+            .header("X-Window", BP_WINDOW.to_string())
+            .header("Content-Type", "application/json; charset=utf-8")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let text = resp.text().await.map_err(|e| e.to_string())?;
+        println!("backpack close response = {text}");
+
+        serde_json::from_str::<BpOrderResponse>(&text)
+            .map(|r| r.id)
+            .map_err(|e| format!("Backpack close order parse error: {e} — body: {text}"))
+    }
+
+    async fn get_position(&self, symbol: &str) -> Result<Option<String>, String> {
+        let symbol_bp = format!("{symbol}_USDC_PERP");
+
+        let ts = bp_now_ms();
+        let signee = bp_signee("positionQuery", None, ts);
+        let signature = bp_sign(&signee);
+
+        let url = format!("{BP_BASE}/api/v1/position");
+        let resp = http_client()
+            .get(&url)
+            .header("X-API-Key", backpack_api_key())
+            .header("X-Signature", &signature)
+            .header("X-Timestamp", ts.to_string())
+            .header("X-Window", BP_WINDOW.to_string())
+            .send()
+            .await
+            .map_err(|e| e.to_string())?
+            .json::<Vec<BpFuturePosition>>()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        for pos in resp {
+            if pos.symbol == symbol_bp {
+                let qty = Decimal::from_str(&pos.net_quantity).unwrap_or(Decimal::ZERO);
+                if qty.is_zero() {
+                    return Ok(None);
+                } else if qty.is_sign_positive() {
+                    return Ok(Some("LONG".to_string()));
+                } else {
+                    return Ok(Some("SHORT".to_string()));
+                }
+            }
         }
         Ok(None)
     }
