@@ -20,20 +20,21 @@ impl Aggregator {
         tokio::spawn(ws::run_binance(quotes_clone, publisher_clone));
         info!("Binance started!");
 
-        let quotes_clone = Arc::clone(&quotes);
-        let publisher_clone = publisher.clone();
-        tokio::spawn(ws::run_backpack(quotes_clone, publisher_clone));
-        info!("Backpack started!");
+        // speedbump 100ms
+        // let quotes_clone = Arc::clone(&quotes);
+        // let publisher_clone = publisher.clone();
+        // tokio::spawn(ws::run_backpack(quotes_clone, publisher_clone));
+        // info!("Backpack started!");
 
         let quotes_clone = Arc::clone(&quotes);
         let publisher_clone = publisher.clone();
         tokio::spawn(ws::run_hibachi(quotes_clone, publisher_clone));
         info!("Hibachi started!");
 
-        // let quotes_clone = Arc::clone(&quotes);
-        // let publisher_clone = publisher.clone();
-        // tokio::spawn(ws::run_aster(quotes_clone, publisher_clone));
-        // info!("Aster started!");
+        let quotes_clone = Arc::clone(&quotes);
+        let publisher_clone = publisher.clone();
+        tokio::spawn(ws::run_aster(quotes_clone, publisher_clone));
+        info!("Aster started!");
 
         // let quotes_clone = Arc::clone(&quotes);
         // let publisher_clone = publisher.clone();
