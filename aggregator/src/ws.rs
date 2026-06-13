@@ -292,13 +292,13 @@ pub fn parse_blofin(msg: &str) -> Option<ticker::Quote> {
 
 pub fn parse_okx(msg: &str) -> Option<ticker::Quote> {
     if let Ok(wrapper) = serde_json::from_str::<models::OKXResponse>(msg) {
-        let data = wrapper.data;
+        let data = wrapper.data.into_iter().next()?;
         let bid = Decimal::from_str_exact(&data.best_bid).unwrap_or(Decimal::ZERO);
         let bid_size = Decimal::from_str_exact(&data.best_bid_size).unwrap_or(Decimal::ZERO);
         let ask = Decimal::from_str_exact(&data.best_ask).unwrap_or(Decimal::ZERO);
         let ask_size = Decimal::from_str_exact(&data.best_ask_size).unwrap_or(Decimal::ZERO);
         let mid = (ask + bid) / Decimal::TWO;
-        let raw_ts = data.ts;
+        let raw_ts: u64 = data.ts.parse().unwrap_or(0);
         let timestamp = if raw_ts < 1_000_000_000_000 { raw_ts * 1000 } else { raw_ts };
 
         Some(ticker::Quote {

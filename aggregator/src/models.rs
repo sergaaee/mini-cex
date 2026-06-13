@@ -88,7 +88,7 @@ pub struct BloFinTicker {
 
 #[derive(Deserialize, Debug)]
 pub struct OKXResponse {
-    pub data: OKXTicker,
+    pub data: Vec<OKXTicker>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -102,7 +102,8 @@ pub struct OKXTicker {
     #[serde(rename = "askSz")]
     pub best_ask_size: String,
 
-    pub ts: u64,
+    #[serde(rename = "ts")]
+    pub ts: String,
 }
 
 #[derive(Deserialize, Debug)]

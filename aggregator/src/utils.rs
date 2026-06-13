@@ -20,7 +20,7 @@ pub fn create_subscribe_message(exchange: Exchange, symbol: &str) -> Option<serd
         })),
         Exchange::OKX => Some(json!({
             "op": "subscribe",
-            "args": [{ "channel": "tickers", "instId": format!("{symbol}-USDT") }]
+            "args": [{ "channel": "tickers", "instId": format!("{symbol}-USDT-SWAP") }]
         })),
         _ => None,
     }
