@@ -250,17 +250,20 @@ impl FillTracker {
                 (lf.avg_price - sf.avg_price) / sf.avg_price * Decimal::from(100u32)
             };
 
-            let long_fee_rate = std::env::var("BINANCE_TAKER_FEE")
+            let binance_fee_rate = std::env::var("BINANCE_TAKER_FEE")
                 .ok()
                 .and_then(|s| s.parse::<Decimal>().ok())
                 .unwrap_or(Decimal::new(5, 4));
-            let short_fee_rate = std::env::var("HIBACHI_TAKER_FEE")
+            let hibachi_fee_rate = std::env::var("HIBACHI_TAKER_FEE")
                 .ok()
                 .and_then(|s| s.parse::<Decimal>().ok())
                 .unwrap_or(Decimal::new(5, 4));
 
-            let long_fee = lf.avg_price * ctx.long_qty * long_fee_rate * Decimal::TWO;
-            let short_fee = sf.avg_price * ctx.short_qty * short_fee_rate * Decimal::TWO;
+            let long_fee_rate = exchange_fee_rate(ctx.long_exchange, binance_fee_rate, hibachi_fee_rate);
+            let short_fee_rate = exchange_fee_rate(ctx.short_exchange, binance_fee_rate, hibachi_fee_rate);
+
+            let long_fee = (ctx.long_entry_price + lf.avg_price) * ctx.long_qty * long_fee_rate;
+            let short_fee = (ctx.short_entry_price + sf.avg_price) * ctx.short_qty * short_fee_rate;
 
             let realized_pnl = (lf.avg_price - ctx.long_entry_price) * ctx.long_qty - long_fee
                 + (ctx.short_entry_price - sf.avg_price) * ctx.short_qty
@@ -309,6 +312,14 @@ impl FillTracker {
                 warn!("Output channel full, dropping CloseResult");
             }
         }
+    }
+}
+
+fn exchange_fee_rate(exchange: Exchange, binance: Decimal, hibachi: Decimal) -> Decimal {
+    match exchange {
+        Exchange::Binance => binance,
+        Exchange::Hibachi => hibachi,
+        _ => hibachi,
     }
 }
 
