@@ -150,8 +150,6 @@ impl DecisionEngine {
             .inc();
 
         if opp.symbol.as_str() == "BNB"
-            || opp.long_exchange == Exchange::Backpack
-            || opp.short_exchange == Exchange::Backpack
             || opp.long_exchange == Exchange::OKX
             || opp.short_exchange == Exchange::OKX
         {
