@@ -3099,6 +3099,7 @@ dependencies = [
  "anyhow",
  "axum 0.8.9",
  "common",
+ "futures-util",
  "lazy_static",
  "prometheus",
  "redis",

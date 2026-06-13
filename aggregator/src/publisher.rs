@@ -1,10 +1,8 @@
 use common::{Exchange, RedisClient};
 use common::models::ticker::Quote;
-use redis::streams::StreamMaxlen;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
@@ -86,24 +84,21 @@ async fn publisher_worker(redis_client: Arc<RedisClient>, mut rx: mpsc::Receiver
             }
         }
 
-        // Build a single pipeline — one TCP roundtrip for all deduplicated XADDs.
-        let now_ms = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
+        // Build a single pipeline — one TCP roundtrip for all deduplicated PUBLISHes.
         let mut pipe = redis::pipe();
         for event in batch.values() {
-            let stream_key = format!("prices:{}", event.symbol);
-            pipe.cmd("XADD")
-                .arg(&stream_key)
-                .arg(StreamMaxlen::Approx(10000))
-                .arg("*")
-                .arg("exchange").arg(event.exchange.to_string())
-                .arg("bid").arg(event.quote.bid.to_string())
-                .arg("ask").arg(event.quote.ask.to_string())
-                .arg("bid_size").arg(event.quote.bid_size.to_string())
-                .arg("ask_size").arg(event.quote.ask_size.to_string())
-                .arg("mid").arg(event.quote.mid.to_string())
-                .arg("timestamp").arg(event.quote.timestamp.to_string())
-                .arg("received_at").arg(event.quote.received_at.to_string())
-                .ignore();
+            let channel = format!("prices:{}", event.symbol);
+            let payload = serde_json::json!({
+                "exchange":    event.exchange.to_string(),
+                "bid":         event.quote.bid.to_string(),
+                "ask":         event.quote.ask.to_string(),
+                "bid_size":    event.quote.bid_size.to_string(),
+                "ask_size":    event.quote.ask_size.to_string(),
+                "mid":         event.quote.mid.to_string(),
+                "timestamp":   event.quote.timestamp,
+                "received_at": event.quote.received_at,
+            });
+            pipe.cmd("PUBLISH").arg(channel).arg(payload.to_string()).ignore();
         }
 
         let batch_size = batch.len();
@@ -112,7 +107,7 @@ async fn publisher_worker(redis_client: Arc<RedisClient>, mut rx: mpsc::Receiver
                 let prev = events_published;
                 events_published += batch_size as u64;
                 if events_published / 10_000 > prev / 10_000 {
-                    info!("Published {} events to Redis Streams", events_published);
+                    info!("Published {} events via pub/sub", events_published);
                 }
             }
             Err(e) => {

@@ -3,8 +3,7 @@ use axum::{routing::get, Router};
 use common::{Exchange, SpreadOpportunity};
 use lazy_static::lazy_static;
 use prometheus::{Encoder, GaugeVec, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, Opts, Registry, TextEncoder};
-use redis::streams::{StreamReadOptions, StreamReadReply};
-use redis::AsyncCommands;
+use futures_util::StreamExt;
 use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
 use serde::Deserialize;
@@ -128,42 +127,15 @@ struct SpreadSession {
     starting_spread_pct: f64,
 }
 
-#[derive(Debug, Deserialize)]
-struct StreamEntry {
+#[derive(Deserialize)]
+struct PriceMessage {
     exchange: String,
     bid: String,
     ask: String,
-    #[allow(dead_code)]
     bid_size: String,
-    #[allow(dead_code)]
     ask_size: String,
-    #[allow(dead_code)]
-    mid: String,
-    timestamp: String,
-    received_at: String,
-}
-
-fn parse_stream_entry(fields: &[(String, redis::Value)]) -> Option<StreamEntry> {
-    let mut map: HashMap<String, String> = HashMap::new();
-
-    for (key, value) in fields {
-        if let redis::Value::BulkString(bytes) = value {
-            if let Ok(s) = String::from_utf8(bytes.clone()) {
-                map.insert(key.clone(), s);
-            }
-        }
-    }
-
-    Some(StreamEntry {
-        exchange: map.get("exchange")?.clone(),
-        bid: map.get("bid")?.clone(),
-        ask: map.get("ask")?.clone(),
-        bid_size: map.get("bid_size").cloned().unwrap_or_default(),
-        ask_size: map.get("ask_size").cloned().unwrap_or_default(),
-        mid: map.get("mid").cloned().unwrap_or_default(),
-        timestamp: map.get("timestamp")?.clone(),
-        received_at: map.get("received_at").cloned().unwrap_or_default(),
-    })
+    timestamp: u64,
+    received_at: u64,
 }
 
 fn parse_exchange(s: &str) -> Option<Exchange> {
@@ -351,226 +323,164 @@ async fn spread_publisher_worker(
     }
 }
 
-const GROUP: &str = "spread-calculator";
-const CONSUMER: &str = "consumer-1";
-
-async fn consume_streams(
+async fn consume_pubsub(
     redis_url: &str,
-    symbols: Vec<String>,
     store: QuoteStore,
     spread_tx: mpsc::Sender<SpreadOpportunity>,
     publish_min_pct: f64,
     max_quote_age_ms: u64,
 ) -> Result<()> {
     let client = redis::Client::open(redis_url)?;
-    let mut conn = client
-        .get_multiplexed_async_connection_with_config(
-            &redis::AsyncConnectionConfig::new()
-                .set_connection_timeout(None)
-                .set_response_timeout(None),
-        )
-        .await?;
 
-    let stream_keys: Vec<String> = symbols.iter().map(|s| format!("prices:{}", s)).collect();
-
-    // Create consumer groups starting at $ (skip existing backlog entirely)
-    for key in &stream_keys {
-        let result: redis::RedisResult<()> = redis::cmd("XGROUP")
-            .arg("CREATE").arg(key).arg(GROUP).arg("$").arg("MKSTREAM")
-            .query_async(&mut conn).await;
-        match result {
-            Ok(_) => info!(stream = %key, "Consumer group created"),
-            Err(e) if e.to_string().contains("BUSYGROUP") => {
-                debug!(stream = %key, "Consumer group already exists");
-            }
-            Err(e) => return Err(anyhow::anyhow!("XGROUP CREATE {}: {}", key, e)),
-        }
-    }
-
-    // Flush any pending messages left from a previous crashed session — ACK without processing
-    let drain_opts = StreamReadOptions::default().group(GROUP, CONSUMER).count(10_000);
-    let zero_ids: Vec<&str> = vec!["0"; stream_keys.len()];
-    loop {
-        let pending: StreamReadReply = conn.xread_options(&stream_keys, &zero_ids, &drain_opts).await?;
-        let mut flushed = 0usize;
-        for stream in &pending.keys {
-            let ids: Vec<&str> = stream.ids.iter().map(|e| e.id.as_str()).collect();
-            if !ids.is_empty() {
-                let n: i64 = conn.xack(&stream.key, GROUP, &ids).await?;
-                flushed += n as usize;
-            }
-        }
-        if flushed == 0 { break; }
-        info!(flushed, "Flushed stale pending messages from previous session");
-    }
-
-    info!(streams = ?stream_keys, "Starting consumer group read loop");
-
-    // Large COUNT drains burst backlog in one shot; per-exchange dedup below keeps only the
-    // freshest quote per exchange regardless of batch size.
-    let read_opts = StreamReadOptions::default().group(GROUP, CONSUMER).block(10).count(10_000);
-    let new_ids: Vec<&str> = vec![">"; stream_keys.len()];
-
-    // Dedup: only publish when prices change or >1s keepalive.
-    // Key: "{symbol}:{long_exchange}:{short_exchange}"
-    // Value: (long_price, short_price, last_published_ms)
     let mut last_published: HashMap<String, (Decimal, Decimal, u64)> = HashMap::new();
-
-    // Session tracking: key = "{symbol}:{long_exchange}:{short_exchange}"
     let mut sessions: HashMap<String, SpreadSession> = HashMap::new();
 
     loop {
-        let result: redis::RedisResult<StreamReadReply> = conn
-            .xread_options(&stream_keys, &new_ids, &read_opts)
-            .await;
-
-        match result {
-            Ok(reply) => {
-                let mut symbols_updated: HashSet<String> = HashSet::new();
-
-                for stream_key in reply.keys {
-                    let symbol = stream_key
-                        .key
-                        .strip_prefix("prices:")
-                        .unwrap_or(&stream_key.key)
-                        .to_string();
-
-                    let mut ids_to_ack: Vec<String> = Vec::with_capacity(stream_key.ids.len());
-                    // Last entry per exchange wins — stream entries are ordered oldest→newest
-                    let mut latest: HashMap<Exchange, QuoteData> = HashMap::new();
-
-                    for entry in stream_key.ids {
-                        ids_to_ack.push(entry.id.clone());
-                        let fields: Vec<(String, redis::Value)> = entry.map.into_iter().collect();
-                        if let Some(se) = parse_stream_entry(&fields) {
-                            if let Some(exchange) = parse_exchange(&se.exchange) {
-                                let bid: f64 = se.bid.parse().unwrap_or(0.0);
-                                let ask: f64 = se.ask.parse().unwrap_or(0.0);
-                                let bid_size: f64 = se.bid_size.parse().unwrap_or(0.0);
-                                let ask_size: f64 = se.ask_size.parse().unwrap_or(0.0);
-                                let timestamp: u64 = se.timestamp.parse().unwrap_or(0);
-                                let received_at: u64 = se.received_at.parse().unwrap_or(0);
-
-                                latest.insert(exchange, QuoteData { bid, ask, bid_size, ask_size, timestamp, received_at });
-                            }
-                        }
-                    }
-
-                    // ACK everything — processed or skipped, we never want to re-read old data
-                    if !ids_to_ack.is_empty() {
-                        let _: redis::RedisResult<i64> = conn.xack(&stream_key.key, GROUP, &ids_to_ack).await;
-                        EVENTS_PROCESSED.inc_by(ids_to_ack.len() as u64);
-                    }
-
-                    if !latest.is_empty() {
-                        let mut store_guard = store.write().await;
-                        let sym_quotes = store_guard.entry(symbol.clone()).or_default();
-                        for (exchange, quote) in latest {
-                            sym_quotes.insert(exchange, quote);
-                        }
-                        symbols_updated.insert(symbol);
-                    }
-                }
-
-                // Calculate spreads once per symbol after the whole batch is applied
-                for symbol in symbols_updated {
-                    let now = now_ms();
-                    let opportunities = {
-                        let store_guard = store.read().await;
-                        if let Some(quotes) = store_guard.get(&symbol) {
-                            update_best_prices(&symbol, quotes, now);
-                            calculate_spreads(&symbol, quotes, publish_min_pct, max_quote_age_ms)
-                        } else {
-                            vec![]
-                        }
-                    };
-                    let now = now_ms();
-
-                    // Session tracking: which directions are active this cycle for this symbol
-                    let mut active_keys: HashSet<String> = HashSet::new();
-                    for opp in &opportunities {
-                        let long_str = opp.long_exchange.to_string();
-                        let short_str = opp.short_exchange.to_string();
-                        let key = format!("{}:{}:{}", opp.symbol, long_str, short_str);
-                        active_keys.insert(key.clone());
-
-                        if !sessions.contains_key(&key) {
-                            sessions.insert(key.clone(), SpreadSession {
-                                started_at_ms: now,
-                                symbol: opp.symbol.clone(),
-                                long_exchange: long_str.clone(),
-                                short_exchange: short_str.clone(),
-                                starting_spread_pct: opp.spread_percent.to_f64().unwrap_or(0.0),
-                            });
-                            SPREAD_SESSIONS_STARTED
-                                .with_label_values(&[&opp.symbol, &long_str, &short_str])
-                                .inc();
-                            info!(
-                                symbol = %opp.symbol, long_exchange = %long_str,
-                                short_exchange = %short_str, spread_pct = %opp.spread_percent,
-                                "Spread session started"
-                            );
-                        }
-
-                        let duration_ms = now.saturating_sub(sessions[&key].started_at_ms);
-                        SPREAD_SESSION_DURATION_MS
-                            .with_label_values(&[&opp.symbol, &long_str, &short_str])
-                            .set(duration_ms as f64);
-                    }
-
-                    // End sessions for this symbol that dropped below threshold
-                    let ended: Vec<String> = sessions.iter()
-                        .filter(|(k, s)| s.symbol == symbol && !active_keys.contains(*k))
-                        .map(|(k, _)| k.clone())
-                        .collect();
-                    for key in ended {
-                        let s = sessions.remove(&key).unwrap();
-                        let duration_ms = now.saturating_sub(s.started_at_ms);
-                        // floor spread to nearest 0.01%, e.g. 0.0839 → "0.08"
-                        let pct_f64: f64 = s.starting_spread_pct;
-                        let pct_bucket = format!("{:.2}", (pct_f64 * 100.0).floor() / 100.0);
-                        SPREAD_SESSION_DURATION_MS
-                            .with_label_values(&[&s.symbol, &s.long_exchange, &s.short_exchange])
-                            .set(0.0);
-                        SPREAD_SESSION_LAST_DURATION_MS
-                            .with_label_values(&[&s.symbol, &s.long_exchange, &s.short_exchange])
-                            .set(duration_ms as f64);
-                        SPREAD_SESSION_DURATION_HIST
-                            .with_label_values(&[&s.symbol, &s.long_exchange, &s.short_exchange, &pct_bucket])
-                            .observe(duration_ms as f64);
-                        info!(
-                            symbol = %s.symbol, long_exchange = %s.long_exchange,
-                            short_exchange = %s.short_exchange, duration_ms,
-                            spread_pct_bucket = %pct_bucket,
-                            "Spread session ended"
-                        );
-                    }
-
-                    // Dedup publish: only when prices change or >200ms keepalive
-                    for opp in opportunities {
-                        let key = format!("{}:{}:{}", opp.symbol, opp.long_exchange, opp.short_exchange);
-                        let should_publish = match last_published.get(&key) {
-                            None => true,
-                            Some((last_long, last_short, last_ts)) => {
-                                opp.long_exchange_price != *last_long
-                                    || opp.short_exchange_price != *last_short
-                                   // || now.saturating_sub(*last_ts) >= 200
-                            }
-                        };
-                        if should_publish {
-                            last_published.insert(key, (opp.long_exchange_price, opp.short_exchange_price, now));
-                            if spread_tx.try_send(opp).is_err() {
-                                warn!("Spread publish channel full, dropping opportunity");
-                            }
-                        }
-                    }
-                }
-            }
+        let mut pubsub = match client.get_async_pubsub().await {
+            Ok(c) => c,
             Err(e) => {
-                warn!(error = %e, "Error reading from streams, retrying...");
-                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                warn!(error = %e, "Failed to connect to Redis pub/sub, retrying in 1s");
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                continue;
+            }
+        };
+
+        if let Err(e) = pubsub.psubscribe("prices:*").await {
+            warn!(error = %e, "Failed to psubscribe prices:*, retrying in 1s");
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            continue;
+        }
+
+        info!("Subscribed to prices:* via pub/sub");
+
+        let mut msg_stream = pubsub.on_message();
+
+        while let Some(msg) = msg_stream.next().await {
+            let channel = msg.get_channel_name().to_string();
+            let symbol = match channel.strip_prefix("prices:") {
+                Some(s) => s.to_string(),
+                None => continue,
+            };
+
+            let payload: String = match msg.get_payload() {
+                Ok(p) => p,
+                Err(_) => continue,
+            };
+
+            let entry: PriceMessage = match serde_json::from_str(&payload) {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+
+            let exchange = match parse_exchange(&entry.exchange) {
+                Some(e) => e,
+                None => continue,
+            };
+
+            let quote = QuoteData {
+                bid:         entry.bid.parse().unwrap_or(0.0),
+                ask:         entry.ask.parse().unwrap_or(0.0),
+                bid_size:    entry.bid_size.parse().unwrap_or(0.0),
+                ask_size:    entry.ask_size.parse().unwrap_or(0.0),
+                timestamp:   entry.timestamp,
+                received_at: entry.received_at,
+            };
+
+            EVENTS_PROCESSED.inc();
+
+            {
+                let mut store_guard = store.write().await;
+                store_guard.entry(symbol.clone()).or_default().insert(exchange, quote);
+            }
+
+            let now = now_ms();
+            let opportunities = {
+                let store_guard = store.read().await;
+                if let Some(quotes) = store_guard.get(&symbol) {
+                    update_best_prices(&symbol, quotes, now);
+                    calculate_spreads(&symbol, quotes, publish_min_pct, max_quote_age_ms)
+                } else {
+                    vec![]
+                }
+            };
+            let now = now_ms();
+
+            let mut active_keys: HashSet<String> = HashSet::new();
+            for opp in &opportunities {
+                let long_str = opp.long_exchange.to_string();
+                let short_str = opp.short_exchange.to_string();
+                let key = format!("{}:{}:{}", opp.symbol, long_str, short_str);
+                active_keys.insert(key.clone());
+
+                if !sessions.contains_key(&key) {
+                    sessions.insert(key.clone(), SpreadSession {
+                        started_at_ms: now,
+                        symbol: opp.symbol.clone(),
+                        long_exchange: long_str.clone(),
+                        short_exchange: short_str.clone(),
+                        starting_spread_pct: opp.spread_percent.to_f64().unwrap_or(0.0),
+                    });
+                    SPREAD_SESSIONS_STARTED
+                        .with_label_values(&[&opp.symbol, &long_str, &short_str])
+                        .inc();
+                    info!(
+                        symbol = %opp.symbol, long_exchange = %long_str,
+                        short_exchange = %short_str, spread_pct = %opp.spread_percent,
+                        "Spread session started"
+                    );
+                }
+
+                let duration_ms = now.saturating_sub(sessions[&key].started_at_ms);
+                SPREAD_SESSION_DURATION_MS
+                    .with_label_values(&[&opp.symbol, &long_str, &short_str])
+                    .set(duration_ms as f64);
+            }
+
+            let ended: Vec<String> = sessions.iter()
+                .filter(|(k, s)| s.symbol == symbol && !active_keys.contains(*k))
+                .map(|(k, _)| k.clone())
+                .collect();
+            for key in ended {
+                let s = sessions.remove(&key).unwrap();
+                let duration_ms = now.saturating_sub(s.started_at_ms);
+                let pct_f64: f64 = s.starting_spread_pct;
+                let pct_bucket = format!("{:.2}", (pct_f64 * 100.0).floor() / 100.0);
+                SPREAD_SESSION_DURATION_MS
+                    .with_label_values(&[&s.symbol, &s.long_exchange, &s.short_exchange])
+                    .set(0.0);
+                SPREAD_SESSION_LAST_DURATION_MS
+                    .with_label_values(&[&s.symbol, &s.long_exchange, &s.short_exchange])
+                    .set(duration_ms as f64);
+                SPREAD_SESSION_DURATION_HIST
+                    .with_label_values(&[&s.symbol, &s.long_exchange, &s.short_exchange, &pct_bucket])
+                    .observe(duration_ms as f64);
+                info!(
+                    symbol = %s.symbol, long_exchange = %s.long_exchange,
+                    short_exchange = %s.short_exchange, duration_ms,
+                    spread_pct_bucket = %pct_bucket,
+                    "Spread session ended"
+                );
+            }
+
+            for opp in opportunities {
+                let key = format!("{}:{}:{}", opp.symbol, opp.long_exchange, opp.short_exchange);
+                let should_publish = match last_published.get(&key) {
+                    None => true,
+                    Some((last_long, last_short, _)) => {
+                        opp.long_exchange_price != *last_long || opp.short_exchange_price != *last_short
+                    }
+                };
+                if should_publish {
+                    last_published.insert(key, (opp.long_exchange_price, opp.short_exchange_price, now));
+                    if spread_tx.try_send(opp).is_err() {
+                        warn!("Spread publish channel full, dropping opportunity");
+                    }
+                }
             }
         }
+
+        warn!("Pub/sub connection dropped, reconnecting...");
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     }
 }
 
@@ -628,5 +538,5 @@ async fn main() -> Result<()> {
     tokio::spawn(start_metrics_server(metrics_port));
     tokio::spawn(spread_publisher_worker(redis_url.clone(), spread_rx));
 
-    consume_streams(&redis_url, symbols, store, spread_tx, publish_min_pct, max_quote_age_ms).await
+    consume_pubsub(&redis_url, store, spread_tx, publish_min_pct, max_quote_age_ms).await
 }
