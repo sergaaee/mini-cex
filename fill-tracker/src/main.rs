@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
+mod aster_ws;
 mod backpack_ws;
 mod binance_ws;
 mod hibachi_ws;
@@ -232,6 +233,9 @@ async fn main() -> Result<()> {
     let redis_url = std::env::var("REDIS_URL")
         .unwrap_or_else(|_| "redis://redis:6379/".into());
 
+    let aster_api_key = std::env::var("ASTER_API_KEY")
+        .expect("ASTER_API_KEY env var required");
+
     let binance_api_key = std::env::var("BINANCE_API_KEY")
         .expect("BINANCE_API_KEY env var required");
 
@@ -259,6 +263,7 @@ async fn main() -> Result<()> {
         hibachi_account_id,
         hibachi_api_key,
     ));
+    tokio::spawn(aster_ws::run(Arc::clone(&tracker), aster_api_key));
     tokio::spawn(backpack_ws::run(Arc::clone(&tracker), backpack_secret));
 
     output_publisher_worker(redis_url, output_rx).await;

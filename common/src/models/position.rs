@@ -876,9 +876,52 @@ impl PositionManagement for AsterClient {
         Ok(order_id)
     }
 
-    async fn close_position(&self, symbol: &str, _qty: Decimal, _close_side: Side) -> Result<String, String> {
-        println!("Aster: closing position {}", symbol);
-        Ok("stub".to_string())
+    async fn close_position(&self, symbol: &str, qty: Decimal, close_side: Side) -> Result<String, String> {
+        println!("Aster: closing {} {} {}", close_side, qty, symbol);
+
+        let api_key = aster_api_key();
+        let secret = aster_secret();
+
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|e| e.to_string())?
+            .as_millis();
+
+        let (order_side, position_side) = match close_side {
+            Side::Sell => ("SELL", "LONG"),
+            Side::Buy => ("BUY", "SHORT"),
+            _ => panic!("Unknown close side"),
+        };
+
+        let query = format!(
+            "type=MARKET&symbol={}USDT&side={}&quantity={}&positionSide={}&newOrderRespType=RESULT&timestamp={}",
+            symbol, order_side, qty, position_side, timestamp
+        );
+
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).map_err(|e| e.to_string())?;
+        mac.update(query.as_bytes());
+        let signature = hex::encode(mac.finalize().into_bytes());
+
+        let url = format!(
+            "https://fapi.asterdex.com/fapi/v1/order?{}&signature={}",
+            query, signature
+        );
+
+        let resp = http_client()
+            .post(&url)
+            .header("X-MBX-APIKEY", api_key)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let text = resp.text().await.map_err(|e| e.to_string())?;
+        println!("aster close response = {:?}", text);
+
+        let order_id = serde_json::from_str::<BinanceOrderResponse>(&text)
+            .map(|r| r.order_id.to_string())
+            .map_err(|e| format!("Aster close order parse error: {} — body: {}", e, text))?;
+
+        Ok(order_id)
     }
 
     async fn get_position(&self, symbol: &str) -> Result<Option<String>, String> {
