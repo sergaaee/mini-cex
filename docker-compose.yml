@@ -117,6 +117,7 @@ services:
       - BINANCE_TAKER_FEE=0.0225
       - HIBACHI_TAKER_FEE=0.014
       - BACKPACK_TAKER_FEE=0.0026
+      - ASTER_TAKER_FEE=0.04
       - RUST_LOG=fill_tracker=info
 
   position-manager:

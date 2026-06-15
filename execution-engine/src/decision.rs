@@ -152,6 +152,8 @@ impl DecisionEngine {
         if opp.symbol.as_str() == "BNB"
             || opp.long_exchange == Exchange::Hibachi
             || opp.short_exchange == Exchange::Hibachi
+            || opp.long_exchange == Exchange::OKX
+            || opp.short_exchange == Exchange::OKX
         {
             dry_run = true;
         }
