@@ -25,11 +25,11 @@ impl Aggregator {
         // let publisher_clone = publisher.clone();
         // tokio::spawn(ws::run_backpack(quotes_clone, publisher_clone));
         // info!("Backpack started!");
-
-        let quotes_clone = Arc::clone(&quotes);
-        let publisher_clone = publisher.clone();
-        tokio::spawn(ws::run_hibachi(quotes_clone, publisher_clone));
-        info!("Hibachi started!");
+        //
+        // let quotes_clone = Arc::clone(&quotes);
+        // let publisher_clone = publisher.clone();
+        // tokio::spawn(ws::run_hibachi(quotes_clone, publisher_clone));
+        // info!("Hibachi started!");
 
         let quotes_clone = Arc::clone(&quotes);
         let publisher_clone = publisher.clone();
@@ -46,10 +46,10 @@ impl Aggregator {
         // tokio::spawn(ws::run_blofin(quotes_clone, publisher_clone));
         // info!("Blofin started!");
 
-        let quotes_clone = Arc::clone(&quotes);
-        let publisher_clone = publisher.clone();
-        tokio::spawn(ws::run_okx(quotes_clone, publisher_clone));
-        info!("OKX started!");
+        // let quotes_clone = Arc::clone(&quotes);
+        // let publisher_clone = publisher.clone();
+        // tokio::spawn(ws::run_okx(quotes_clone, publisher_clone));
+        // info!("OKX started!");
 
         Self { quotes }
     }

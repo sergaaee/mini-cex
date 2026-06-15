@@ -107,9 +107,7 @@ impl DecisionEngine {
             "BNB" => 2,
             "SUI" => 1,
             "XRP" => 1,
-            _ => {
-                panic!("Unsupported symbol: {}", opp.symbol);
-            }
+            _ => 1,
         };
 
         let mut qty = (self.trade_size_usd / opp.long_exchange_price).round_dp(precision);
